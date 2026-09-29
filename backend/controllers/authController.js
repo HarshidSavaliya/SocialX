@@ -58,7 +58,9 @@ export const getMe = async (req, res, next) => {
         website: req.user.website,
         followersCount: req.user.followersCount,
         followingCount: req.user.followingCount,
-        postsCount: req.user.postsCount
+        postsCount: req.user.postsCount,
+        role: req.user.role,
+        accountStatus: req.user.accountStatus
       }
     });
   } catch (error) {

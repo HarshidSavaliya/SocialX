@@ -39,7 +39,9 @@ const seedDatabase = async () => {
         website: 'https://socialx.dev/alex',
         followersCount: 2,
         followingCount: 3,
-        postsCount: 1
+        postsCount: 1,
+        role: 'ADMIN',
+        accountStatus: 'ACTIVE'
       },
       {
         name: 'George Lobko',

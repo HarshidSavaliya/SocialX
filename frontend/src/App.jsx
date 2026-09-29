@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
+import { VideoCallProvider } from './context/VideoCallContext';
 
 // Components
 import Header from './components/Header';
@@ -13,12 +14,18 @@ import LoadingSkeleton from './components/LoadingSkeleton';
 import EmptyState from './components/EmptyState';
 import AuthModal from './components/AuthModal';
 import BottomMobileNav from './components/BottomMobileNav';
+import VideoCallManager from './components/VideoCall/VideoCallManager';
 
-// Views
+// Views (Eager for standard social workflow, lazy for heavy administrative & isolated modules)
 import ProfileView from './views/ProfileView';
 import MessagingView from './views/MessagingView';
 import SearchView from './views/SearchView';
 import NotificationsView from './views/NotificationsView';
+import ExploreView from './views/ExploreView';
+
+// Route-level code splitting (PART 26: Performance Optimization)
+const AdminView = lazy(() => import('./views/AdminView'));
+const SecretChatView = lazy(() => import('./views/SecretChatView'));
 
 // API Services
 import { postService } from './services/postService';
@@ -127,6 +134,27 @@ function SocialXMain() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const [secretChatConvId, setSecretChatConvId] = useState(null);
+
+  const handleOpenSecretChat = (convId = null) => {
+    if (!isAuthenticated) {
+      setShowAuthModal(true);
+      return;
+    }
+    setSecretChatConvId(convId);
+    setActiveView('secret-chat');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleOpenAdmin = () => {
+    if (!isAuthenticated || user?.role !== 'ADMIN') {
+      setShowAuthModal(true);
+      return;
+    }
+    setActiveView('admin');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <div
       className={`min-h-screen transition-colors duration-500 font-sans relative overflow-x-hidden ${isDark ? 'bg-[#0a0c12] text-slate-100' : 'bg-[#edf1f8] text-slate-900'
@@ -169,6 +197,8 @@ function SocialXMain() {
         onOpenSearch={handleOpenSearch}
         onOpenNotifications={handleOpenNotifications}
         onOpenConversation={handleOpenConversation}
+        onOpenAdmin={handleOpenAdmin}
+        onOpenSecretChat={() => handleOpenSecretChat(null)}
       />
 
       {/* Main Desktop Container */}
@@ -180,10 +210,16 @@ function SocialXMain() {
               <LeftSidebar
                 activeView={activeView}
                 setActiveView={(view) => {
-                  setActiveView(view);
-                  if (view === 'feed') {
-                    setTargetUsername(null);
-                    setActiveHashtag(null);
+                  if (view === 'secret-chat') {
+                    handleOpenSecretChat(null);
+                  } else if (view === 'admin') {
+                    handleOpenAdmin();
+                  } else {
+                    setActiveView(view);
+                    if (view === 'feed') {
+                      setTargetUsername(null);
+                      setActiveHashtag(null);
+                    }
                   }
                 }}
                 onOpenAuth={() => setShowAuthModal(true)}
@@ -194,10 +230,28 @@ function SocialXMain() {
             </div>
           </div>
 
-          {/* Full-width view for real-time messaging */}
+          {/* Full-width view for real-time messaging, Secret Chat, or Admin */}
           {activeView === 'messages' ? (
             <div className="flex-1 w-full min-w-0">
-              <MessagingView />
+              <MessagingView onOpenSecretChat={() => handleOpenSecretChat(null)} />
+            </div>
+          ) : activeView === 'secret-chat' ? (
+            <div className="flex-1 w-full min-w-0">
+              <Suspense fallback={<div className="p-6"><LoadingSkeleton count={3} /></div>}>
+                <SecretChatView
+                  initialConversationId={secretChatConvId}
+                  onExit={() => {
+                    setActiveView('feed');
+                    setSecretChatConvId(null);
+                  }}
+                />
+              </Suspense>
+            </div>
+          ) : activeView === 'admin' ? (
+            <div className="flex-1 w-full min-w-0">
+              <Suspense fallback={<div className="p-6"><LoadingSkeleton count={3} /></div>}>
+                <AdminView onNavigateToProfile={handleNavigateToProfile} />
+              </Suspense>
             </div>
           ) : (
             <>
@@ -337,6 +391,7 @@ function SocialXMain() {
                     onNavigateToProfile={handleNavigateToProfile}
                     onHashtagClick={handleHashtagClick}
                     onOpenConversation={handleOpenConversation}
+                    onStartSecretChat={(conv) => handleOpenSecretChat(conv._id)}
                   />
                 )}
 
@@ -353,12 +408,31 @@ function SocialXMain() {
                 {activeView === 'notifications' && (
                   <NotificationsView
                     onNavigate={(notification) => {
-                      if (notification.type === 'MESSAGE' && notification.relatedConversation) {
+                      if (
+                        (notification.type === 'MESSAGE' ||
+                          notification.type === 'VIDEO_CALL' ||
+                          notification.type === 'MISSED_VIDEO_CALL') &&
+                        notification.relatedConversation
+                      ) {
                         handleOpenConversation(notification.relatedConversation);
                       } else if (notification.type === 'FOLLOW' && notification.sender?.username) {
                         handleNavigateToProfile(notification.sender.username);
+                      } else if (
+                        (notification.type === 'VIDEO_CALL' ||
+                          notification.type === 'MISSED_VIDEO_CALL') &&
+                        notification.sender?.username
+                      ) {
+                        handleNavigateToProfile(notification.sender.username);
                       }
                     }}
+                  />
+                )}
+
+                {/* VIEW E: EXPLORE */}
+                {activeView === 'explore' && (
+                  <ExploreView
+                    onNavigateToProfile={handleNavigateToProfile}
+                    onHashtagClick={handleHashtagClick}
                   />
                 )}
               </div>
@@ -410,7 +484,10 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
         <SocketProvider>
-          <SocialXMain />
+          <VideoCallProvider>
+            <SocialXMain />
+            <VideoCallManager />
+          </VideoCallProvider>
         </SocketProvider>
       </AuthProvider>
     </ThemeProvider>

@@ -12,7 +12,9 @@ class AuthService {
 
   async register({ name, username, email, password }) {
     if (!name || !username || !email || !password) {
-      throw new Error('Please provide all required fields');
+      const err = new Error('Please provide all required fields');
+      err.statusCode = 400;
+      throw err;
     }
 
     const cleanUsername = username.trim().toLowerCase();
@@ -25,10 +27,14 @@ class AuthService {
 
     if (existingUser) {
       if (existingUser.email === cleanEmail) {
-        throw new Error('An account with this email address already exists');
+        const err = new Error('An account with this email address already exists');
+        err.statusCode = 400;
+        throw err;
       }
       if (existingUser.username === cleanUsername) {
-        throw new Error('This username is already taken. Please choose another');
+        const err = new Error('This username is already taken. Please choose another');
+        err.statusCode = 400;
+        throw err;
       }
     }
 
@@ -52,7 +58,9 @@ class AuthService {
         coverImage: user.coverImage,
         followersCount: user.followersCount,
         followingCount: user.followingCount,
-        postsCount: user.postsCount
+        postsCount: user.postsCount,
+        role: user.role,
+        accountStatus: user.accountStatus
       },
       token
     };
@@ -60,7 +68,9 @@ class AuthService {
 
   async login({ emailOrUsername, password }) {
     if (!emailOrUsername || !password) {
-      throw new Error('Please provide email/username and password');
+      const err = new Error('Please provide email/username and password');
+      err.statusCode = 400;
+      throw err;
     }
 
     const cleanInput = emailOrUsername.trim().toLowerCase();
@@ -70,12 +80,23 @@ class AuthService {
     }).select('+password');
 
     if (!user) {
-      throw new Error('Invalid email/username or password');
+      const err = new Error('Invalid email/username or password');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    // Check account status
+    if (user.accountStatus === 'BLOCKED') {
+      const err = new Error('Your account has been suspended by an administrator. Please contact support.');
+      err.statusCode = 403;
+      throw err;
     }
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      throw new Error('Invalid email/username or password');
+      const err = new Error('Invalid email/username or password');
+      err.statusCode = 400;
+      throw err;
     }
 
     const token = this.generateToken(user._id);
@@ -91,7 +112,9 @@ class AuthService {
         coverImage: user.coverImage,
         followersCount: user.followersCount,
         followingCount: user.followingCount,
-        postsCount: user.postsCount
+        postsCount: user.postsCount,
+        role: user.role,
+        accountStatus: user.accountStatus
       },
       token
     };

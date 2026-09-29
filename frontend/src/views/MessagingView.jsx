@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Search, Send, ChevronLeft, Check, CheckCheck,
-  Lock, Loader2, MessageSquare
+  Lock, Loader2, MessageSquare, Video
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
+import { useVideoCall } from '../context/VideoCallContext';
 import { messageService } from '../services/messageService';
 import { searchService } from '../services/searchService';
 import { formatConversationTime, formatMessageTime } from '../utils/dateTime';
@@ -14,6 +15,7 @@ export default function MessagingView({ onOpenSecretChat }) {
   const { isDark } = useTheme();
   const { user, isAuthenticated } = useAuth();
   const { socket, onlineUsers } = useSocket() || {};
+  const { startCall } = useVideoCall();
 
   const [conversations, setConversations] = useState([]);
   const [activeConvId, setActiveConvId] = useState(null);
@@ -436,6 +438,35 @@ export default function MessagingView({ onOpenSecretChat }) {
                   {isOtherOnline ? 'Online' : 'Offline'}
                 </p>
               </div>
+
+              {/* Video Call Action Button (Phase 5 Agora RTC) */}
+              {activeOther && (
+                <button
+                  onClick={() =>
+                    startCall({
+                      receiver: activeOther,
+                      conversationId: activeConvId,
+                      callType: 'video'
+                    })
+                  }
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 transition-all shadow-xs cursor-pointer"
+                  title="Start Agora Video Call"
+                >
+                  <Video className="w-3.5 h-3.5 text-indigo-400" />
+                  <span className="hidden sm:inline">Video Call</span>
+                </button>
+              )}
+
+              {onOpenSecretChat && (
+                <button
+                  onClick={onOpenSecretChat}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-all shadow-xs"
+                  title="Switch to Secret Chat"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Secret Mode</span>
+                </button>
+              )}
             </div>
 
             {/* Messages */}

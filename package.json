@@ -3,13 +3,16 @@
   "version": "1.0.0",
   "description": "A modern social media platform built with the MERN stack.",
   "scripts": {
-    "install-server": "cd backend && npm install",
-    "install-client": "cd frontend && npm install",
-    "dev": "cd frontend && npm run dev",
-    "dev-client": "cd frontend && npm run dev",
-    "build-client": "cd frontend && npm run build",
-    "start-server": "cd backend && npm start",
-    "dev-server": "cd backend && npm run dev"
+    "install-server": "npm --prefix backend install",
+    "install-client": "npm --prefix frontend install",
+    "seed": "npm --prefix backend run seed",
+    "dev-server": "npm --prefix backend run dev",
+    "dev-client": "npm --prefix frontend run dev",
+    "dev": "npm --prefix frontend run dev",
+    "build-client": "npm --prefix frontend run build",
+    "test": "npm --prefix backend test",
+    "test-phase5": "npm --prefix backend run test:phase5",
+    "test:qa": "npm --prefix backend run test:qa"
   },
   "repository": {
     "type": "git",

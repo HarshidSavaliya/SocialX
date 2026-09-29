@@ -9,7 +9,14 @@ import PostCard from '../components/PostCard';
 import EmptyState from '../components/EmptyState';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 
-export default function ProfileView({ username, onBack, onNavigateToProfile, onHashtagClick }) {
+export default function ProfileView({
+  username,
+  onBack,
+  onNavigateToProfile,
+  onHashtagClick,
+  onOpenConversation,
+  onStartSecretChat
+}) {
   const { user: authUser } = useAuth();
   const { isDark } = useTheme();
 
@@ -126,6 +133,7 @@ export default function ProfileView({ username, onBack, onNavigateToProfile, onH
             followersCount: isFollowing ? prev.followersCount + 1 : Math.max(0, prev.followersCount - 1)
           }));
         }}
+        onStartSecretChat={onStartSecretChat}
       />
 
       {/* Profile Navigation Tabs */}

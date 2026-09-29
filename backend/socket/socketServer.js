@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import SecretConversation from '../models/SecretConversation.js';
 
 let ioInstance = null;
 // Map: userId (string) -> Set of socketId (string)
@@ -39,6 +40,11 @@ export const initSocket = (httpServer) => {
         return next(new Error('User not found'));
       }
 
+      // Check if user is blocked
+      if (user.accountStatus === 'BLOCKED') {
+        return next(new Error('Account suspended by administrator'));
+      }
+
       socket.user = user;
       next();
     } catch (err) {
@@ -66,7 +72,9 @@ export const initSocket = (httpServer) => {
     // Send current list of all online user IDs to the connected client
     socket.emit('presence:online-users', Array.from(onlineUsers.keys()));
 
-    // Conversation Room Management
+    // ==========================================
+    // 1. NORMAL CHAT ROOM MANAGEMENT (Phase 3)
+    // ==========================================
     socket.on('conversation:join', (conversationId) => {
       if (conversationId) {
         socket.join(`conversation:${conversationId}`);
@@ -79,7 +87,6 @@ export const initSocket = (httpServer) => {
       }
     });
 
-    // Real-Time Typing Indicators
     socket.on('typing:start', ({ conversationId }) => {
       if (conversationId) {
         socket.to(`conversation:${conversationId}`).emit('typing:user', {
@@ -100,8 +107,87 @@ export const initSocket = (httpServer) => {
       }
     });
 
+    // ==========================================
+    // 2. SECRET CHAT ROOM MANAGEMENT (Phase 4)
+    // Strictly isolated room namespace & events
+    // ==========================================
+    socket.on('secret:conversation:join', async (conversationId) => {
+      if (!conversationId) return;
+
+      try {
+        const conv = await SecretConversation.findById(conversationId);
+        if (!conv || !conv.isActive) return;
+
+        // Verify authenticated socket user is actually a participant
+        const isParticipant = conv.participants.some(
+          (p) => p.toString() === userId
+        );
+
+        if (isParticipant) {
+          socket.join(`secret:conversation:${conversationId}`);
+        }
+      } catch (err) {
+        console.warn('Socket secret join error:', err.message);
+      }
+    });
+
+    socket.on('secret:conversation:leave', (conversationId) => {
+      if (conversationId) {
+        socket.leave(`secret:conversation:${conversationId}`);
+      }
+    });
+
+    socket.on('secret:typing:start', ({ conversationId }) => {
+      if (conversationId) {
+        socket.to(`secret:conversation:${conversationId}`).emit('secret:typing:user', {
+          conversationId,
+          userId
+        });
+      }
+    });
+
+    socket.on('secret:typing:stop', ({ conversationId }) => {
+      if (conversationId) {
+        socket.to(`secret:conversation:${conversationId}`).emit('secret:typing:stop', {
+          conversationId,
+          userId
+        });
+      }
+    });
+
+    // ==========================================
+    // 3. VIDEO CALL SIGNALING (Phase 5: Agora RTC Control)
+    // ==========================================
+    socket.on('call:join-room', (channelName) => {
+      if (channelName) {
+        socket.join(`call:${channelName}`);
+      }
+    });
+
+    socket.on('call:leave-room', (channelName) => {
+      if (channelName) {
+        socket.leave(`call:${channelName}`);
+      }
+    });
+
+    socket.on('call:media-state', ({ targetUserId, channelName, isAudioMuted, isVideoMuted }) => {
+      if (targetUserId) {
+        emitToUser(targetUserId, 'call:media-state', {
+          userId,
+          isAudioMuted,
+          isVideoMuted
+        });
+      } else if (channelName) {
+        socket.to(`call:${channelName}`).emit('call:media-state', {
+          userId,
+          isAudioMuted,
+          isVideoMuted
+        });
+      }
+    });
+
     // Disconnect handling
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       const userSockets = onlineUsers.get(userId);
       if (userSockets) {
         userSockets.delete(socket.id);
@@ -109,6 +195,31 @@ export const initSocket = (httpServer) => {
           onlineUsers.delete(userId);
           // Broadcast offline presence to all connected clients
           socket.broadcast.emit('user:offline', { userId });
+
+          // Auto-cleanup any hanging calls on complete user disconnection
+          try {
+            const CallSession = (await import('../models/CallSession.js')).default;
+            const activeCalls = await CallSession.find({
+              $or: [{ caller: userId }, { receiver: userId }],
+              status: { $in: ['ringing', 'active'] }
+            });
+            for (const call of activeCalls) {
+              call.status = 'ended';
+              call.endedAt = new Date();
+              call.endedBy = userId;
+              await call.save();
+
+              const otherId =
+                call.caller.toString() === userId ? call.receiver : call.caller;
+              emitToUser(otherId, 'call:end', {
+                callSessionId: call._id,
+                endedBy: userId,
+                reason: 'User disconnected'
+              });
+            }
+          } catch (cleanErr) {
+            console.warn('Socket disconnect call cleanup warning:', cleanErr.message);
+          }
         }
       }
     });
@@ -139,5 +250,11 @@ export const emitToUser = (userId, event, data) => {
 export const emitToConversation = (conversationId, event, data) => {
   if (ioInstance) {
     ioInstance.to(`conversation:${conversationId.toString()}`).emit(event, data);
+  }
+};
+
+export const emitToSecretConversation = (conversationId, event, data) => {
+  if (ioInstance) {
+    ioInstance.to(`secret:conversation:${conversationId.toString()}`).emit(event, data);
   }
 };

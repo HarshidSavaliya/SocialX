@@ -1,231 +1,329 @@
-# SocialX — Full-Stack MERN Social Media Platform
+# SocialX — Full-Stack MERN Social Media Platform with Real-Time Messaging & Agora Video Calling
 
-SocialX is a modern, unified social media platform built with the MERN stack (MongoDB + Express.js + React 19 + Node.js) with Tailwind CSS, Cloudinary media handling, and MVC backend architecture.
+SocialX is a modern, unified social media platform built with the MERN stack (MongoDB + Express.js + React 19 + Node.js), powered by Tailwind CSS, Cloudinary media handling, Socket.IO real-time event streaming, and Agora.io WebRTC audio/video calling.
 
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Architecture & Tech Stack](#architecture--tech-stack)
-- [Phase 2 Implementation](#phase-2-implementation)
-  - [R.3 Post Management](#r3-post-management)
-  - [R.4 Social Interaction](#r4-social-interaction)
-  - [R.5 Follow System](#r5-follow-system)
-  - [Feed Algorithm & Pagination](#feed-algorithm--pagination)
-- [Database Schema & Scalability](#database-schema--scalability)
-- [Cloudinary Media Handling & Cleanup](#cloudinary-media-handling--cleanup)
-- [REST API Reference](#rest-api-reference)
-- [Getting Started](#getting-started)
-- [Running Automated Tests](#running-automated-tests)
-- [License](#license)
+1. [Overview](#overview)
+2. [Technology Stack](#technology-stack)
+3. [Architecture](#architecture)
+4. [Completed Requirements (R.1 – R.10)](#completed-requirements-r1--r10)
+5. [Agora.io Video Calling System](#agoraio-video-calling-system)
+6. [Environment Variables](#environment-variables)
+7. [Installation & Setup](#installation--setup)
+8. [Running the Application](#running-the-application)
+9. [Agora Setup Guide](#agora-setup-guide)
+10. [Cloudinary Setup Guide](#cloudinary-setup-guide)
+11. [MongoDB Atlas Setup Guide](#mongodb-atlas-setup-guide)
+12. [REST API Documentation](#rest-api-documentation)
+13. [Socket.IO Events Documentation](#socketio-events-documentation)
+14. [Automated Test Suites](#automated-test-suites)
+15. [License](#license)
 
 ---
 
-## Overview
+## 1. Overview
 
-SocialX combines the clarity of clean social dashboards (Reference 1) with the refined elegance of modern dark editorial interfaces (Reference 2). In **Phase 2**, the platform transitions from an interface shell into a live, connected social application backed by MongoDB Atlas and Express MVC services.
+SocialX bridges the visual clarity of clean desktop social dashboards with the refined aesthetics of dark editorial interfaces. The application provides end-to-end features including user authentication, multimedia post sharing, social interactions (likes, comments, shares, follows), one-to-one real-time messaging, PIN-secured ephemeral Secret Chat, role-based admin moderation, and real-time one-to-one Agora.io HD video calling.
 
 ---
 
-## Architecture & Tech Stack
+## 2. Technology Stack
 
-### Backend: MVC Architecture
+### Frontend
+- **Framework:** React 19 (Hooks, Context API, Suspense, Lazy Loading)
+- **Bundler:** Vite 8 with optimized Rolldown code splitting
+- **Styling:** Tailwind CSS v4 (`@tailwindcss/vite`) with glassmorphism design tokens
+- **Media RTC:** `agora-rtc-sdk-ng` (v4.24+) for hardware media track capture and playback
+- **Real-Time Client:** `socket.io-client` (v4.8+) for persistent bi-directional signaling
+- **Icons:** `lucide-react`
+- **HTTP Client:** `axios` with bearer token interceptors
 
-```
-Route ──> Middleware ──> Controller ──> Service ──> Model ──> MongoDB
-```
-
+### Backend
 - **Runtime:** Node.js (v24.x)
-- **Framework:** Express.js (v4.x)
-- **Database:** MongoDB & Mongoose (v8.x)
-- **Authentication:** JWT (JSON Web Tokens) & bcryptjs password hashing
-- **Media Engine:** Cloudinary SDK & Multer (memoryStorage streaming)
-- **CORS & Environment:** cors & dotenv
+- **Framework:** Express.js (v4.x) with MVC architectural pattern
+- **Database:** MongoDB & Mongoose ODM (v8.x)
+- **Authentication:** JWT (JSON Web Tokens) & `bcryptjs` password hashing
+- **RTC Token Generator:** `agora-token` (official standard Agora AccessToken builder)
+- **Real-Time Server:** `socket.io` (v4.8+) with room namespaces and JWT handshake middleware
+- **File Uploads:** Multer (memoryStorage streaming) & Cloudinary SDK
 
-### Frontend Architecture
-
-- **Core:** React 19 & Vite 8
-- **Styling:** Tailwind CSS v4 (`@tailwindcss/vite`) with custom glassmorphism utilities
-- **Typography:** Plus Jakarta Sans
-- **Icons:** Lucide React
-- **Client Layer:** Axios API instance with request/response interceptors
-- **State Management:** React Context (`AuthContext`, `ThemeContext`) & local component state
+### Cloud Services
+- **Agora.io:** Global low-latency Real-Time Communication (RTC) audio/video network
+- **Cloudinary:** Cloud storage, dynamic transformations, and CDN asset delivery
+- **MongoDB Atlas:** Distributed cloud database cluster
 
 ---
 
-## Phase 2 Implementation
+## 3. Architecture
 
-### R.3 Post Management
-- **R.3.1 Create Post (`POST /api/posts`):**
-  - Authenticated user author auto-assignment (`req.user._id`).
-  - Supports text caption, image upload, video upload, and hashtags.
-  - Normalizes hashtags (lowercase, deduplicated, prefixed with `#`).
-  - Cloudinary asset upload with metadata storage (`mediaUrl`, `mediaPublicId`, `mediaType`).
-- **R.3.2 Edit Post (`PUT /api/posts/:id`):**
-  - Strict authorization: only the authenticated post author can edit (`post.author === req.user._id`).
-  - Media replacement safely deletes the old Cloudinary asset.
-- **R.3.3 Delete Post (`DELETE /api/posts/:id`):**
-  - Owner-only authorization check.
-  - Cascade deletes associated comments, likes, and shares.
-  - Cleans up Cloudinary asset via `cloudinary.uploader.destroy`.
-
-### R.4 Social Interaction
-- **R.4.1 Like Post (`POST /api/posts/:id/like`):**
-  - Atomically creates a `Like` document with compound unique index `{ post: 1, user: 1 }`.
-  - Atomically increments `likesCount`.
-  - Duplicate clicks prevent double-counting.
-- **R.4.2 Unlike Post (`DELETE /api/posts/:id/like`):**
-  - Deletes `Like` document and atomically decrements `likesCount`.
-  - Optimistic UI on frontend with instant rollback on API error.
-- **R.4.3 Comment on Post (`POST /api/posts/:id/comments`):**
-  - Non-empty validation, max 1000 characters limit.
-  - Populates author info (`name`, `username`, `profileImage`).
-  - Atomically increments `commentsCount`.
-- **R.4.4 Delete Comment (`DELETE /api/comments/:id`):**
-  - Moderation authorization: either the comment author OR the post owner can delete.
-  - Atomically decrements `commentsCount`.
-- **R.4.5 Share Post (`POST /api/posts/:id/share`):**
-  - Records share relationship in `Share` collection.
-  - Increments `sharesCount` and displays real-time feedback toast.
-
-### R.5 Follow System
-- **R.5.1 Follow User (`POST /api/users/:id/follow`):**
-  - Prevents self-follow (`follower !== following`).
-  - Compound unique index `{ follower: 1, following: 1 }` prevents duplicates.
-  - Atomically updates `followingCount` and `followersCount`.
-- **R.5.2 Unfollow User (`DELETE /api/users/:id/follow`):**
-  - Removes follow document and decrements counters atomically.
-- **R.5.3 View Followers (`GET /api/users/:id/followers`):**
-  - Lists followers with profile avatar, name, username, and mutual follow state.
-- **R.5.4 View Following (`GET /api/users/:id/following`):**
-  - Lists followed users with profile avatar, name, username, and follow state.
-
----
-
-## Database Schema & Scalability
-
-Instead of embedding unbounded arrays inside a single document (which fails MongoDB's 16MB document limit and causes lock contention), SocialX uses reference-based relational collections with targeted indexes:
-
+### A. REST API Data Flow (MVC Pattern)
 ```
-┌───────────┐         ┌───────────┐         ┌───────────┐
-│   User    │◄────────│   Post    │◄────────│  Comment  │
-└───────────┘         └───────────┘         └───────────┘
-      ▲                     ▲                     ▲
-      │                     │                     │
-┌───────────┐         ┌───────────┐         ┌───────────┐
-│  Follow   │         │   Like    │         │   Share   │
-└───────────┘         └───────────┘         └───────────┘
+Browser / React UI
+        │ (HTTP JSON Requests + JWT Bearer Token)
+        ▼
+Express Route Handlers (/api/*)
+        │
+Middleware Layer (authMiddleware, errorMiddleware, multer)
+        │
+Controllers (Request parsing & response dispatch)
+        │
+Services (Business logic, validation, token generation, cascade triggers)
+        │
+Mongoose Models (Schema validation, pre-save hooks, indexes)
+        ▼
+MongoDB Atlas Database
 ```
 
-### Applied Indexes:
-- **`User`**: `username: 1` (unique), `email: 1` (unique)
-- **`Post`**: `{ author: 1, createdAt: -1 }`, `{ createdAt: -1 }`, `hashtags: 1`
-- **`Like`**: `{ post: 1, user: 1 }` (unique compound index)
-- **`Comment`**: `{ post: 1, createdAt: 1 }`
-- **`Follow`**: `{ follower: 1, following: 1 }` (unique compound index), `{ following: 1 }`, `{ follower: 1 }`
-- **`Share`**: `{ post: 1, user: 1 }`, `{ user: 1, createdAt: -1 }`
+### B. Real-Time Socket.IO Signaling Flow
+```
+Browser / React UI
+        │ (WebSocket Connection authenticated via handshake JWT)
+        ▼
+Socket Server (/socket/socketServer.js)
+        ├── Personal Room: user:{userId} (Targeted call alerts & direct notifications)
+        ├── Conversation Room: conversation:{id} (Real-time normal chat & typing)
+        ├── Secret Room: secret:conversation:{id} (PIN-isolated ephemeral chat)
+        └── Call Room: call:{channelName} (Hardware media toggles & mute states)
+```
+
+### C. Agora.io Audio & Video Transport Flow
+```
+User A (Caller)                            User B (Receiver)
+      │                                          │
+      ├───── 1. Request Video Call (REST) ─────►│
+      │◄──── 2. Token & Channel Generated ──────┤
+      │                                          │
+      │───── 3. Socket Call Invitation ─────────►│
+      │                                          ├─ 4. Accept Call (REST)
+      │◄──── 5. Socket Call Accepted ────────────┤
+      │                                          │
+      ▼                                          ▼
+┌────────────────────────────────────────────────────────┐
+│             Agora Global RTC SD-RTN Media Mesh         │
+│  - User A publishes local Audio & Camera Video Tracks  │
+│  - User B publishes local Audio & Camera Video Tracks  │
+│  - Hardware muting controlled via local track APIs     │
+└────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## REST API Reference
+## 4. Completed Requirements (R.1 – R.10)
 
-### Authentication
-- `POST /api/auth/register` — Create account (`name`, `username`, `email`, `password`)
-- `POST /api/auth/login` — Sign in (`emailOrUsername`, `password`)
-- `POST /api/auth/logout` — Sign out
-- `GET /api/auth/me` — Get current user (protected)
-
-### Posts
-- `POST /api/posts` — Create post with text/image/video/hashtags (protected, multipart)
-- `GET /api/posts/feed?page=1&limit=10&filter=all` — Paginated feed
-- `GET /api/posts/:id` — Single post details
-- `PUT /api/posts/:id` — Edit own post (protected)
-- `DELETE /api/posts/:id` — Delete own post with cascade cleanup (protected)
-
-### Social Interactions
-- `POST /api/posts/:id/like` — Like post (protected)
-- `DELETE /api/posts/:id/like` — Unlike post (protected)
-- `POST /api/posts/:id/comments` — Add comment (protected)
-- `GET /api/posts/:id/comments` — List comments for post
-- `DELETE /api/comments/:id` — Delete comment (protected: author or post owner)
-- `POST /api/posts/:id/share` — Share post (protected)
-
-### Users & Follow System
-- `GET /api/users/:username` — Public profile details with `isFollowing` flag
-- `PUT /api/users/profile` — Update profile details (protected)
-- `PUT /api/users/profile-image` — Upload avatar to Cloudinary (protected)
-- `GET /api/users/suggestions?limit=5` — Suggested creators not yet followed
-- `POST /api/users/:id/follow` — Follow user (protected)
-- `DELETE /api/users/:id/follow` — Unfollow user (protected)
-- `GET /api/users/:id/followers` — Followers list
-- `GET /api/users/:id/following` — Following list
+| Requirement | Module | Feature Highlights |
+|---|---|---|
+| **R.1** | Profile Management | Register, Login, Logout, Profile update, Avatar upload, Password/Email update |
+| **R.3** | Post Management | Create post (text, image, video), Edit post, Cascade delete post & Cloudinary cleanup |
+| **R.4** | Social Interaction | Atomic Like/Unlike, Post comments, Delete comment, Post sharing with counters |
+| **R.5** | Follow System | Follow/Unfollow user, Followers list, Following list, Self-follow protection |
+| **R.6** | Messaging | 1-to-1 normal chat, real-time typing indicators, read receipts, message history |
+| **R.7** | Notifications | Real-time & persistent notifications for Likes, Comments, Follows, Messages, Video Calls |
+| **R.8** | Search | Multi-entity search for Users, Posts, Hashtags with debounced filtering |
+| **R.9** | Admin Moderation | User management, Account blocking/suspension enforcement, Harmful post deletion, Audit logs |
+| **R.10** | Secret Chat | PIN-locked ephemeral chat, auto-delete message limits, delete-on-exit purge, view-once media |
+| **Phase 5** | Agora Video Calling | One-to-one video calling, incoming/outgoing UI, camera/mic controls, busy & missed call flow |
 
 ---
 
-## Getting Started
+## 5. Agora.io Video Calling System
 
-### 1. Prerequisites
-- Node.js (v18+ or v24+)
-- MongoDB running locally on port 27017 or MongoDB Atlas URI
+### Security Principles
+1. **Zero Secret Leakage:** `AGORA_APP_CERTIFICATE` resides strictly on the backend server. It is NEVER exposed to the frontend, network payloads, or client bundles.
+2. **Ephemeral Scoped Tokens:** Agora RTC tokens are generated with strict integer UIDs and short expiration windows (default: 3600 seconds).
+3. **Session Participant Authorization:** Only authenticated participants belonging to the specific `CallSession` can request an Agora token for that channel.
+4. **Account Suspension Enforcement:** Blocked accounts (`accountStatus === 'BLOCKED'`) cannot initiate or participate in video calls.
+5. **Simultaneous Call Prevention (Busy State):** Users currently engaged in a call reject incoming calls with HTTP 486 Busy and an informative message.
 
-### 2. Environment Configuration
-Create `backend/.env` (see `backend/.env.example`):
+---
+
+## 6. Environment Variables
+
+Create `.env` in the `backend/` directory:
+
 ```env
 PORT=5000
 MONGO_URI=mongodb://localhost:27017/socialx
 JWT_SECRET=your_jwt_secret_key_here
-CLOUDINARY_CLOUD_NAME=your_cloud_name
-CLOUDINARY_API_KEY=your_api_key
-CLOUDINARY_API_SECRET=your_api_secret
-```
 
-### 3. Install Dependencies
-```sh
-npm run install-server
-npm run install-client
-```
+# Cloudinary Configuration
+CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
+CLOUDINARY_API_KEY=your_cloudinary_api_key
+CLOUDINARY_API_SECRET=your_cloudinary_api_secret
 
-### 4. Seed Demo Data
-Populate MongoDB with demo users, posts, comments, likes, and follow relationships:
-```sh
-cd backend
-node config/seed.js
-cd ..
-```
-
-### 5. Run the Application
-- **Run Backend Server:**
-  ```sh
-  npm run dev-server
-  ```
-  Runs at `http://localhost:5000`.
-
-- **Run Frontend Client:**
-  ```sh
-  npm run dev
-  ```
-  Runs at `http://localhost:5173`.
-
-### 6. Build Frontend for Production
-```sh
-npm run build-client
+# Agora.io Configuration (BACKEND ONLY)
+AGORA_APP_ID=your_agora_app_id_here
+AGORA_APP_CERTIFICATE=your_agora_app_certificate_here
+AGORA_TOKEN_EXPIRY=3600
 ```
 
 ---
 
-## Running Automated Tests
+## 7. Installation & Setup
 
-Run the comprehensive Phase 2 automated test suite:
-```sh
+### Prerequisites
+- Node.js (v18+ or v24.x recommended)
+- MongoDB (Local instance or MongoDB Atlas URI)
+- Git
+
+### 1. Clone & Install Dependencies
+```bash
+# Clone the repository
+git clone https://github.com/HarshidSavaliya/SocialX.git
+cd SocialX
+
+# Install backend dependencies
 cd backend
+npm install
+
+# Install frontend dependencies
+cd ../frontend
+npm install
+```
+
+### 2. Seed Initial Database (Demo Data & Admin Account)
+```bash
+# From root directory:
+npm run seed
+
+# Or from backend directory:
+cd backend
+npm run seed
+```
+
+---
+
+## 8. Running the Application
+
+Both backend and frontend can be started easily:
+
+### Option A: From Root Directory
+- **Run Backend:** `npm run dev-server` (runs on http://localhost:5000)
+- **Run Frontend:** `npm run dev` or `npm run dev-client` (runs on http://localhost:5173)
+
+### Option B: In Separate Terminals
+```bash
+# Terminal 1 - Backend Server
+cd backend
+npm run dev
+
+# Terminal 2 - Frontend Client
+cd frontend
+npm run dev
+```
+
+---
+
+## 9. Agora Setup Guide
+
+1. Sign up or log into [Agora.io Console](https://console.agora.io/).
+2. Create a new Project with **App ID + App Certificate** token authentication mode.
+3. Copy your **App ID** and paste into `backend/.env` as `AGORA_APP_ID`.
+4. Copy your **Primary Certificate** and paste into `backend/.env` as `AGORA_APP_CERTIFICATE`.
+5. Restart the backend server. The application will now generate live Agora RTC tokens for hardware audio/video streaming.
+
+---
+
+## 10. Cloudinary Setup Guide
+
+1. Create a free account at [Cloudinary](https://cloudinary.com/).
+2. Retrieve your **Cloud Name**, **API Key**, and **API Secret** from the dashboard.
+3. Paste credentials into `backend/.env`.
+4. Images and videos uploaded to posts or avatars are automatically stored and served via Cloudinary.
+
+---
+
+## 11. MongoDB Atlas Setup Guide
+
+1. Create a free cluster at [MongoDB Atlas](https://www.mongodb.com/atlas).
+2. Create a database user with read/write privileges.
+3. Whitelist your IP address (or `0.0.0.0/0` for development).
+4. Copy the connection string (e.g. `mongodb+srv://...`) into `MONGO_URI` in `backend/.env`.
+
+---
+
+## 12. REST API Documentation
+
+### Authentication & Users
+- `POST /api/auth/register` — Register new user
+- `POST /api/auth/login` — Login user (returns JWT token)
+- `GET /api/auth/me` — Get authenticated user details
+- `PUT /api/users/profile` — Update bio, location, website
+- `POST /api/users/profile/picture` — Upload avatar to Cloudinary
+- `POST /api/users/:id/follow` — Follow user
+- `DELETE /api/users/:id/follow` — Unfollow user
+
+### Video Calls (Phase 5)
+- `POST /api/video-calls/initiate` — Initiate 1-on-1 video call session
+- `POST /api/video-calls/accept` — Accept incoming call & receive receiver Agora token
+- `POST /api/video-calls/reject` — Reject incoming call
+- `POST /api/video-calls/end` — Terminate call and compute duration
+- `POST /api/video-calls/missed` — Mark unanswered call as missed and notify
+- `GET /api/video-calls/token/:callSessionId` — Retrieve temporary Agora token for session
+- `GET /api/video-calls/history` — Get user call history
+
+### Normal Chat & Messaging
+- `GET /api/conversations` — Get user conversations list
+- `POST /api/conversations` — Create or retrieve 1-to-1 conversation
+- `GET /api/conversations/:id/messages` — Get paginated message history
+- `POST /api/messages` — Send text/media message
+- `PATCH /api/conversations/:id/read` — Mark conversation messages as read
+
+### Ephemeral Secret Chat
+- `POST /api/secret-chats/initialize` — Create PIN-protected secret chat
+- `POST /api/secret-chats/:id/verify-pin` — Verify PIN and obtain scoped secret session token
+- `POST /api/secret-messages` — Send secret message (requires `x-secret-token`)
+- `POST /api/secret-chats/:id/exit` — Wipe all messages and close session
+
+### Admin Moderation
+- `GET /api/admin/dashboard` — Platform statistics (users, posts, status)
+- `GET /api/admin/users` — Paginated user listing with search filters
+- `PATCH /api/admin/users/:id/block` — Suspend user account
+- `PATCH /api/admin/users/:id/unblock` — Restore user account
+- `DELETE /api/admin/posts/:id` — Delete harmful post with moderation audit log
+
+---
+
+## 13. Socket.IO Events Documentation
+
+### Video Calling Events
+| Event Name | Direction | Payload | Description |
+|---|---|---|---|
+| `call:invite` | Server ➔ Receiver | `{ callSessionId, channelName, caller, callerUid }` | Alerts receiver of incoming call |
+| `call:ringing` | Server ➔ Caller | `{ callSessionId, channelName, receiver }` | Informs caller that receiver is ringing |
+| `call:accept` | Server ➔ Caller | `{ callSessionId, channelName, receiverUid }` | Informs caller that call was accepted |
+| `call:reject` | Server ➔ Caller | `{ callSessionId, reason }` | Informs caller that call was declined |
+| `call:busy` | Server ➔ Caller | `{ callSessionId, message }` | Informs caller that receiver is on another call |
+| `call:end` | Server ➔ Peer | `{ callSessionId, endedBy, duration, reason }` | Informs peer that call has terminated |
+| `call:missed` | Server ➔ Both | `{ callSessionId, message }` | Signals call timeout / missed call |
+| `call:media-state` | Client ⇄ Peer | `{ targetUserId, isAudioMuted, isVideoMuted }` | Syncs microphone / camera mute states |
+
+---
+
+## 14. Automated Test Suites
+
+SocialX includes comprehensive, non-mocked test suites verifying database interactions, REST endpoints, and WebSocket signaling.
+
+```bash
+cd backend
+
+# Run Phase 2 Social Suite (Posts, Likes, Comments, Shares, Follows)
 node test_phase2.js
-```
 
-The test suite runs 26 automated assertions testing authentication, post CRUD, authorization guards, duplicate like prevention, atomic like count updates, comments, shares, follow rules, self-follow prevention, feed pagination, and user profile queries.
+# Run Phase 4 Security Suite (RBAC, Moderation, Ephemeral Secret Chat)
+node test_phase4.js
+
+# Run Phase 5 Video Call REST Suite (CallSession, Agora tokens, Busy checks)
+node test_phase5.js
+
+# Run Phase 5 Real-Time Socket Suite (Two concurrent users, signaling, media states)
+node test_phase5_socket.js
+```
 
 ---
 
-## License
+## 15. License
 
-Distributed under the ISC License.
+This project is licensed under the ISC License.

@@ -2,7 +2,8 @@ import messageService from '../services/messageService.js';
 
 export const sendMessage = async (req, res, next) => {
   try {
-    const { receiverId, text, mediaUrl, mediaType } = req.body;
+    const { receiverId, mediaUrl, mediaType } = req.body;
+    const text = req.body.text || req.body.content;
     if (!receiverId) {
       return res.status(400).json({ success: false, message: 'receiverId is required' });
     }

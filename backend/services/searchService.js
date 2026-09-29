@@ -7,7 +7,7 @@ class SearchService {
    * Search users by name or username (case-insensitive regex).
    */
   async searchUsers(query, currentUserId = null, { limit = 20 } = {}) {
-    if (!query || !query.trim()) return [];
+    if (!query || typeof query !== 'string' || !query.trim()) return [];
 
     const cleanQuery = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(cleanQuery, 'i');
@@ -41,7 +41,7 @@ class SearchService {
    * Search posts by caption text or hashtags.
    */
   async searchPosts(query, { limit = 20, sort = 'recent' } = {}) {
-    if (!query || !query.trim()) return [];
+    if (!query || typeof query !== 'string' || !query.trim()) return [];
 
     const cleanQuery = query.trim().replace(/^#/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(cleanQuery, 'i');
@@ -65,7 +65,7 @@ class SearchService {
    * Aggregate distinct hashtags matching query with their post count.
    */
   async searchHashtags(query, { limit = 20 } = {}) {
-    if (!query || !query.trim()) return [];
+    if (!query || typeof query !== 'string' || !query.trim()) return [];
 
     const cleanQuery = query.trim().replace(/^#/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(cleanQuery, 'i');
@@ -97,7 +97,7 @@ class SearchService {
    * Global search: returns users, posts, and hashtags.
    */
   async globalSearch(query, currentUserId = null) {
-    if (!query || !query.trim()) {
+    if (!query || typeof query !== 'string' || !query.trim()) {
       return { users: [], posts: [], hashtags: [] };
     }
 

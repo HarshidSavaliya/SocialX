@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   Home,
   User,
@@ -10,7 +9,9 @@ import {
   Settings,
   LogOut,
   LogIn,
-  Smartphone
+  Smartphone,
+  Lock,
+  ShieldCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -36,6 +37,13 @@ export default function LeftSidebar({
       requiresAuth: true
     },
     {
+      id: 'secret-chat',
+      label: 'Secret Chat',
+      icon: Lock,
+      requiresAuth: true,
+      badge: 'PIN'
+    },
+    {
       id: 'notifications',
       label: 'Notifications',
       icon: Bell,
@@ -43,8 +51,18 @@ export default function LeftSidebar({
       badge: unreadCount > 0 ? `${unreadCount}` : null
     },
     { id: 'profile', label: 'My Profile', icon: User, requiresAuth: true },
-    { id: 'explore', label: 'Explore & Topics', icon: Compass },
-    { id: 'friends', label: 'Network', icon: Users, badge: user ? `${user.followingCount || 0}` : null }
+    ...(user?.role === 'ADMIN'
+      ? [
+          {
+            id: 'admin',
+            label: 'Admin Panel',
+            icon: ShieldCheck,
+            requiresAuth: true,
+            badge: 'Admin'
+          }
+        ]
+      : []),
+    { id: 'explore', label: 'Explore & Topics', icon: Compass }
   ];
 
   const userAvatar =
@@ -205,12 +223,12 @@ export default function LeftSidebar({
             </span>
           </div>
           <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            Phase 3
+            Phase 4
           </span>
         </div>
 
         <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mb-3">
-          Full MERN real-time stack with Socket.IO messaging, presence tracking, live notifications & debounced search.
+          Full MERN real-time stack with R.9 Admin Moderation, R.10 Ephemeral Secret Chat (PIN, auto-delete, view-once media) & Socket.IO.
         </p>
 
         <div className="text-[10px] text-slate-400 font-mono">

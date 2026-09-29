@@ -11,7 +11,7 @@ export const getConversations = async (req, res, next) => {
 
 export const createConversation = async (req, res, next) => {
   try {
-    const { receiverId } = req.body;
+    const receiverId = req.body.receiverId || req.body.recipientId;
     if (!receiverId) {
       return res.status(400).json({ success: false, message: 'receiverId is required' });
     }

@@ -17,6 +17,14 @@ import messageRoutes from './routes/messageRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import searchRoutes from './routes/searchRoutes.js';
 
+// Phase 4 Routes (R.9 Admin Module & R.10 Secret Chat Module)
+import adminRoutes from './routes/adminRoutes.js';
+import secretChatRoutes from './routes/secretChatRoutes.js';
+import secretMessageRoutes from './routes/secretMessageRoutes.js';
+
+// Phase 5 Routes (Agora Video Calling & Lifecycle)
+import videoCallRoutes from './routes/videoCallRoutes.js';
+
 // Middleware
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 
@@ -30,7 +38,7 @@ app.use(
     origin: '*',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-secret-token']
   })
 );
 
@@ -38,12 +46,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Health check
-app.get('/', (req, res) => {
+app.get(['/', '/api'], (req, res) => {
   res.json({
     status: 'online',
     project: 'SocialX API',
-    version: '3.0.0',
-    phase: 'Phase 3: Messaging, Notifications & Search'
+    version: '5.0.0',
+    phase: 'Phase 5: Master Integration & Agora Video Calling'
   });
 });
 
@@ -58,6 +66,14 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/search', searchRoutes);
+
+// Phase 4 API Routes
+app.use('/api/admin', adminRoutes);
+app.use('/api/secret-chats', secretChatRoutes);
+app.use('/api/secret-messages', secretMessageRoutes);
+
+// Phase 5 API Routes
+app.use('/api/video-calls', videoCallRoutes);
 
 // Error Handling
 app.use(notFound);

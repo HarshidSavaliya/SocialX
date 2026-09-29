@@ -8,26 +8,33 @@ import {
   Users,
   UserCheck,
   Loader2,
-  X
+  X,
+  Lock,
+  Video
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useVideoCall } from '../context/VideoCallContext';
 import { userService } from '../services/userService';
 import FollowButton from './FollowButton';
 import FollowersModal from './FollowersModal';
 import FollowingModal from './FollowingModal';
+import StartSecretChatModal from './StartSecretChatModal';
 
 export default function ProfileHeader({
   profile,
   onProfileUpdated,
-  onFollowToggle
+  onFollowToggle,
+  onStartSecretChat
 }) {
   const { user } = useAuth();
   const { isDark } = useTheme();
+  const { startCall } = useVideoCall();
 
   const [showFollowersModal, setShowFollowersModal] = useState(false);
   const [showFollowingModal, setShowFollowingModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showSecretChatModal, setShowSecretChatModal] = useState(false);
 
   // Edit form state
   const [editName, setEditName] = useState(profile?.name || '');
@@ -156,12 +163,40 @@ export default function ProfileHeader({
                 <span>Edit Profile</span>
               </button>
             ) : (
-              <FollowButton
-                userId={profile?.id}
-                initialFollowing={profile?.isFollowing}
-                onToggle={onFollowToggle}
-                size="lg"
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <FollowButton
+                  userId={profile?.id}
+                  initialFollowing={profile?.isFollowing}
+                  onToggle={onFollowToggle}
+                  size="lg"
+                />
+                <button
+                  onClick={() =>
+                    startCall({
+                      receiver: {
+                        _id: profile?.id || profile?._id,
+                        name: profile?.name,
+                        username: profile?.username,
+                        profileImage: profile?.profileImage
+                      },
+                      callType: 'video'
+                    })
+                  }
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 transition-all shadow-xs cursor-pointer"
+                  title="Start video call"
+                >
+                  <Video className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Video Call</span>
+                </button>
+                <button
+                  onClick={() => setShowSecretChatModal(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-all shadow-xs"
+                  title="Start private ephemeral chat"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Secret Chat</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -363,6 +398,18 @@ export default function ProfileHeader({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Start Secret Chat Modal */}
+      {showSecretChatModal && (
+        <StartSecretChatModal
+          isOpen={showSecretChatModal}
+          targetUser={profile}
+          onClose={() => setShowSecretChatModal(false)}
+          onChatStarted={(conv, token) => {
+            if (onStartSecretChat) onStartSecretChat(conv, token);
+          }}
+        />
       )}
     </div>
   );

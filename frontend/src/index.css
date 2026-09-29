@@ -49,3 +49,19 @@
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
+
+/* Agora RTC Video Container Styles */
+#remote-video-container video,
+#local-video-container video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: inherit !important;
+}
+
+#remote-video-container > div,
+#local-video-container > div {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: inherit !important;
+}
