@@ -5,17 +5,9 @@ import notificationService from './notificationService.js';
 
 class LikeService {
   async likePost(postId, userId) {
-    const post = await Post.findById(postId);
+    const post = await Post.findById(postId).select('author likesCount');
     if (!post) {
       throw new Error('Post not found');
-    }
-
-    const existingLike = await Like.findOne({ post: postId, user: userId });
-    if (existingLike) {
-      return {
-        liked: true,
-        likesCount: post.likesCount
-      };
     }
 
     try {
@@ -24,7 +16,7 @@ class LikeService {
         postId,
         { $inc: { likesCount: 1 } },
         { new: true }
-      );
+      ).select('likesCount');
 
       // Trigger notification if post author is not the liker
       if (post.author && post.author.toString() !== userId.toString()) {
@@ -41,15 +33,14 @@ class LikeService {
 
       return {
         liked: true,
-        likesCount: updatedPost.likesCount
+        likesCount: updatedPost ? updatedPost.likesCount : post.likesCount + 1
       };
     } catch (err) {
-      // Catch potential race-condition duplicate key error
+      // Catch duplicate key error when like already exists (idempotent)
       if (err.code === 11000) {
-        const currentPost = await Post.findById(postId);
         return {
           liked: true,
-          likesCount: currentPost.likesCount
+          likesCount: post.likesCount
         };
       }
       throw err;
@@ -57,14 +48,13 @@ class LikeService {
   }
 
   async unlikePost(postId, userId) {
-    const post = await Post.findById(postId);
-    if (!post) {
-      throw new Error('Post not found');
-    }
-
     const deletedLike = await Like.findOneAndDelete({ post: postId, user: userId });
 
     if (!deletedLike) {
+      const post = await Post.findById(postId).select('likesCount');
+      if (!post) {
+        throw new Error('Post not found');
+      }
       return {
         liked: false,
         likesCount: post.likesCount
@@ -84,7 +74,7 @@ class LikeService {
         }
       ],
       { new: true }
-    );
+    ).select('likesCount');
 
     return {
       liked: false,

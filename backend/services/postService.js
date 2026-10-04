@@ -164,7 +164,15 @@ class PostService {
       Comment.deleteMany({ post: post._id }),
       Like.deleteMany({ post: post._id }),
       Share.deleteMany({ post: post._id }),
-      User.findByIdAndUpdate(post.author, { $inc: { postsCount: -1 } })
+      User.findByIdAndUpdate(post.author, [
+        {
+          $set: {
+            postsCount: {
+              $max: [0, { $subtract: ['$postsCount', 1] }]
+            }
+          }
+        }
+      ])
     ]);
 
     // 3. Delete the post itself
@@ -174,10 +182,9 @@ class PostService {
   }
 
   async getPostById(postId, currentUserId = null) {
-    const post = await Post.findById(postId).populate(
-      'author',
-      'name username profileImage'
-    );
+    const post = await Post.findById(postId)
+      .populate('author', 'name username profileImage')
+      .lean();
 
     if (!post) {
       throw new Error('Post not found');
@@ -190,40 +197,41 @@ class PostService {
     }
 
     return {
-      ...post.toObject(),
+      ...post,
       hasLiked
     };
   }
 
-  async getFeed({ currentUserId, page = 1, limit = 10, filter = 'all' }) {
+  async getFeed({ currentUserId, page = 1, limit = 10, filter = 'all', cursor = null }) {
     const pageNum = Math.max(1, parseInt(page, 10));
     const limitNum = Math.max(1, Math.min(50, parseInt(limit, 10)));
-    const skip = (pageNum - 1) * limitNum;
+    const skip = cursor ? 0 : (pageNum - 1) * limitNum;
 
     let query = {};
 
     if (currentUserId) {
       if (filter === 'friends') {
         // Only posts from followed users
-        const followingDocs = await Follow.find({ follower: currentUserId }).select('following');
+        const followingDocs = await Follow.find({ follower: currentUserId }).select('following').lean();
         const followedIds = followingDocs.map(f => f.following);
         query = { author: { $in: followedIds } };
-      } else {
-        // Sensible feed algorithm:
-        // Prioritize followed users + user's own posts + recent global posts
-        // All posts are returned sorted by createdAt: -1
-        query = {};
       }
+    }
+
+    // Cursor-based pagination support for deep feed queries
+    if (cursor) {
+      query.createdAt = { $lt: new Date(cursor) };
     }
 
     const [posts, total] = await Promise.all([
       Post.find(query)
+        .select('author caption mediaUrl mediaPublicId mediaType hashtags likesCount commentsCount sharesCount createdAt updatedAt')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum)
         .populate('author', 'name username profileImage')
         .lean(),
-      Post.countDocuments(query)
+      cursor ? null : Post.countDocuments(query)
     ]);
 
     // Compute hasLiked state for current user
@@ -233,7 +241,7 @@ class PostService {
       const likes = await Like.find({
         post: { $in: postIds },
         user: currentUserId
-      }).select('post');
+      }).select('post').lean();
 
       userLikedPostIds = new Set(likes.map(l => l.post.toString()));
     }
@@ -243,23 +251,25 @@ class PostService {
       hasLiked: userLikedPostIds.has(post._id.toString())
     }));
 
-    const totalPages = Math.ceil(total / limitNum);
+    const nextCursor = enhancedPosts.length > 0 ? enhancedPosts[enhancedPosts.length - 1].createdAt : null;
+    const totalPages = total !== null ? Math.ceil(total / limitNum) : null;
 
     return {
       posts: enhancedPosts,
       pagination: {
         page: pageNum,
         limit: limitNum,
-        total,
-        totalPages,
-        hasNextPage: pageNum < totalPages
+        total: total !== null ? total : enhancedPosts.length,
+        totalPages: totalPages !== null ? totalPages : 1,
+        hasNextPage: totalPages !== null ? pageNum < totalPages : enhancedPosts.length === limitNum,
+        nextCursor
       }
     };
   }
 
   async getUserPosts(username, currentUserId = null, page = 1, limit = 10) {
     const cleanUsername = username.trim().toLowerCase();
-    const user = await User.findOne({ username: cleanUsername });
+    const user = await User.findOne({ username: cleanUsername }).select('_id').lean();
 
     if (!user) {
       throw new Error('User not found');
@@ -271,6 +281,7 @@ class PostService {
 
     const [posts, total] = await Promise.all([
       Post.find({ author: user._id })
+        .select('author caption mediaUrl mediaPublicId mediaType hashtags likesCount commentsCount sharesCount createdAt updatedAt')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum)
@@ -285,7 +296,7 @@ class PostService {
       const likes = await Like.find({
         post: { $in: postIds },
         user: currentUserId
-      }).select('post');
+      }).select('post').lean();
 
       userLikedPostIds = new Set(likes.map(l => l.post.toString()));
     }

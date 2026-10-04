@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Conversation from '../models/Conversation.js';
 import Message from '../models/Message.js';
 import User from '../models/User.js';
@@ -102,39 +103,58 @@ class MessageService {
    * Get all conversations for a user, sorted by most recent message.
    */
   async getConversations(userId) {
+    const userObjectId = new mongoose.Types.ObjectId(userId.toString());
+
     const conversations = await Conversation.find({
-      participants: userId
+      participants: userObjectId
     })
       .sort({ lastMessageAt: -1 })
       .populate('participants', 'name username profileImage')
-      .populate({ path: 'lastMessage', select: 'text sender createdAt isRead', populate: { path: 'sender', select: 'name username' } });
+      .populate({ path: 'lastMessage', select: 'text sender createdAt isRead', populate: { path: 'sender', select: 'name username' } })
+      .lean();
 
-    // Attach unread count and otherUser for each conversation
-    const result = await Promise.all(conversations.map(async (conv) => {
-      const otherUser = conv.participants.find(p => p._id.toString() !== userId.toString());
-      const unreadCount = await Message.countDocuments({
-        conversation: conv._id,
-        receiver: userId,
-        isRead: false
-      });
+    if (conversations.length === 0) {
+      return [];
+    }
+
+    // Single aggregation query replaces N+1 Message.countDocuments calls
+    const convIds = conversations.map((conv) => conv._id);
+    const unreadCounts = await Message.aggregate([
+      {
+        $match: {
+          conversation: { $in: convIds },
+          receiver: userObjectId,
+          isRead: false
+        }
+      },
+      {
+        $group: {
+          _id: '$conversation',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const unreadMap = new Map(unreadCounts.map((u) => [u._id.toString(), u.count]));
+
+    return conversations.map((conv) => {
+      const otherUser = conv.participants.find((p) => p._id.toString() !== userId.toString());
       return {
         _id: conv._id,
         otherUser,
         lastMessage: conv.lastMessage,
         lastMessageAt: conv.lastMessageAt,
-        unreadCount,
+        unreadCount: unreadMap.get(conv._id.toString()) || 0,
         createdAt: conv.createdAt
       };
-    }));
-
-    return result;
+    });
   }
 
   /**
    * Get paginated messages for a conversation. Verifies participant access.
    */
   async getMessages(conversationId, userId, { page = 1, limit = 30 } = {}) {
-    const conversation = await Conversation.findById(conversationId);
+    const conversation = await Conversation.findById(conversationId).select('participants').lean();
     if (!conversation) {
       const err = new Error('Conversation not found');
       err.statusCode = 404;
@@ -142,7 +162,7 @@ class MessageService {
     }
 
     const isParticipant = conversation.participants.some(
-      p => p.toString() === userId.toString()
+      (p) => p.toString() === userId.toString()
     );
     if (!isParticipant) {
       const err = new Error('Not authorized to access this conversation');
@@ -150,20 +170,25 @@ class MessageService {
       throw err;
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
-    const total = await Message.countDocuments({ conversation: conversationId });
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.max(1, Math.min(100, Number(limit) || 30));
+    const skip = (pageNum - 1) * limitNum;
 
-    const messages = await Message.find({ conversation: conversationId })
-      .sort({ createdAt: 1 })
-      .skip(skip)
-      .limit(Number(limit))
-      .populate('sender', 'name username profileImage');
+    const [messages, total] = await Promise.all([
+      Message.find({ conversation: conversationId })
+        .sort({ createdAt: 1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate('sender', 'name username profileImage')
+        .lean(),
+      Message.countDocuments({ conversation: conversationId })
+    ]);
 
     return {
       messages,
       pagination: {
-        page: Number(page),
-        limit: Number(limit),
+        page: pageNum,
+        limit: limitNum,
         total,
         hasNextPage: skip + messages.length < total
       }

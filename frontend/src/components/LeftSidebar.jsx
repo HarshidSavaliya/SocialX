@@ -9,13 +9,13 @@ import {
   Settings,
   LogOut,
   LogIn,
-  Smartphone,
   Lock,
   ShieldCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useNotifications } from '../hooks/useNotifications';
+import { getUserAvatar, handleImageError } from '../utils/avatar';
 
 export default function LeftSidebar({
   activeView,
@@ -65,9 +65,7 @@ export default function LeftSidebar({
     { id: 'explore', label: 'Explore & Topics', icon: Compass }
   ];
 
-  const userAvatar =
-    user?.profileImage ||
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80';
+  const userAvatar = getUserAvatar(user);
 
   return (
     <aside className="w-full lg:w-64 flex flex-col gap-5 select-none">
@@ -76,29 +74,30 @@ export default function LeftSidebar({
         <div
           onClick={onNavigateToMyProfile}
           className={`p-4 rounded-3xl transition-all duration-300 cursor-pointer group border ${isDark
-              ? 'bg-white/[0.04] hover:bg-white/[0.07] border-white/[0.08] shadow-lg shadow-black/20'
-              : 'bg-white hover:bg-slate-50 border border-slate-200/80 shadow-xs'
+              ? 'bg-[#15131a]/90 hover:bg-[#1a1722] border-white/[0.08] shadow-lg shadow-black/30 hover:border-amber-500/30'
+              : 'bg-white hover:bg-stone-50 border border-stone-200/80 shadow-xs'
             }`}
         >
           <div className="flex items-center gap-3.5">
             <div className="relative">
               <img
                 src={userAvatar}
+                onError={(e) => handleImageError(e, user?.name)}
                 alt={user.name}
-                className="relative w-12 h-12 rounded-full object-cover border-2 border-indigo-500/40 group-hover:border-indigo-500 transition-colors"
+                className="relative w-12 h-12 rounded-full object-cover border-2 border-amber-500/40 group-hover:border-amber-400 transition-colors"
               />
               <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#14161f]" />
             </div>
             <div className="min-w-0 flex-1">
               <h3
-                className={`text-xs sm:text-sm font-bold truncate transition-colors ${isDark ? 'text-white group-hover:text-indigo-300' : 'text-slate-900 group-hover:text-indigo-600'
+                className={`text-xs sm:text-sm font-bold truncate transition-colors ${isDark ? 'text-white group-hover:text-amber-400' : 'text-stone-900 group-hover:text-amber-600'
                   }`}
               >
                 {user.name}
               </h3>
-              <p className="text-xs text-slate-400 truncate">@{user.username}</p>
-              <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
-                <span className="font-semibold text-slate-700 dark:text-slate-200">
+              <p className="text-xs text-stone-400 truncate">@{user.username}</p>
+              <div className="flex items-center gap-2 mt-1 text-[11px] text-stone-400">
+                <span className="font-semibold text-stone-700 dark:text-stone-200">
                   {user.followersCount || 0}
                 </span>
                 <span>followers</span>
@@ -109,19 +108,19 @@ export default function LeftSidebar({
       ) : (
         <div
           className={`p-4 rounded-3xl border text-center transition-all ${isDark
-              ? 'bg-white/[0.04] border-white/[0.08]'
-              : 'bg-white border-slate-200/80 shadow-xs'
+              ? 'bg-[#15131a]/90 border-white/[0.08] shadow-lg shadow-black/30'
+              : 'bg-white border-stone-200/80 shadow-xs'
             }`}
         >
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+          <h3 className="text-sm font-bold text-stone-900 dark:text-white mb-1">
             Join SocialX
           </h3>
-          <p className="text-xs text-slate-400 mb-3 leading-relaxed">
+          <p className="text-xs text-stone-400 mb-3 leading-relaxed">
             Connect, post media, chat in real-time, and follow creators.
           </p>
           <button
             onClick={onOpenAuth}
-            className="w-full py-2 rounded-full text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center justify-center gap-1.5"
+            className="w-full py-2.5 rounded-full text-xs font-black bg-gradient-to-r from-amber-400 to-orange-500 text-stone-950 hover:brightness-110 shadow-md shadow-amber-500/20 flex items-center justify-center gap-1.5 transition-all"
           >
             <LogIn className="w-3.5 h-3.5" />
             <span>Sign In / Register</span>
@@ -132,8 +131,8 @@ export default function LeftSidebar({
       {/* Main Navigation List */}
       <nav
         className={`p-2.5 rounded-3xl transition-all border ${isDark
-            ? 'bg-white/[0.03] border-white/[0.06]'
-            : 'bg-white/90 border border-slate-200/80 shadow-xs'
+            ? 'bg-[#15131a]/80 backdrop-blur-xl border-white/[0.08] shadow-lg shadow-black/30'
+            : 'bg-white/90 border border-stone-200/80 shadow-xs'
           }`}
       >
         <ul className="space-y-1">
@@ -157,30 +156,23 @@ export default function LeftSidebar({
                   }}
                   className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-medium transition-all duration-200 ${isActive
                       ? isDark
-                        ? 'bg-white text-slate-950 font-bold shadow-md shadow-white/10'
-                        : 'bg-slate-900 text-white font-bold shadow-md shadow-slate-900/15'
+                        ? 'bg-gradient-to-r from-amber-500/15 to-orange-500/10 text-amber-400 font-bold border border-amber-500/30 shadow-sm shadow-amber-500/10'
+                        : 'bg-stone-900 text-white font-bold shadow-md shadow-stone-900/15'
                       : isDark
-                        ? 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+                        ? 'text-stone-400 hover:text-white hover:bg-white/[0.04]'
+                        : 'text-stone-600 hover:text-stone-950 hover:bg-stone-100/80'
                     }`}
                 >
                   <div className="flex items-center gap-3">
-                    <Icon
-                      className={`w-4 h-4 transition-transform duration-200 ${isActive ? 'scale-110' : ''
-                        }`}
-                    />
-                    <span className="tracking-wide">{item.label}</span>
+                    <Icon className={`w-4 h-4 ${isActive ? (isDark ? 'text-amber-400' : 'text-white') : 'text-stone-400'}`} />
+                    <span>{item.label}</span>
                   </div>
 
                   {item.badge && (
                     <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${isActive
-                          ? isDark
-                            ? 'bg-slate-900 text-white'
-                            : 'bg-white text-slate-900'
-                          : isDark
-                            ? 'bg-white/10 text-slate-200'
-                            : 'bg-slate-200 text-slate-800'
+                      className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${isActive
+                          ? 'bg-amber-400 text-stone-950'
+                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                         }`}
                     >
                       {item.badge}
@@ -205,36 +197,6 @@ export default function LeftSidebar({
           )}
         </ul>
       </nav>
-
-      {/* SocialX Studio App Card */}
-      <div
-        className={`p-4 rounded-3xl relative overflow-hidden transition-all duration-300 border ${isDark
-            ? 'bg-gradient-to-b from-indigo-950/40 via-white/[0.03] to-white/[0.02] border-white/[0.08]'
-            : 'bg-gradient-to-b from-indigo-50/80 via-white to-slate-50 border-indigo-100/80 shadow-xs'
-          }`}
-      >
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-xl bg-indigo-500/20 text-indigo-400">
-              <Smartphone className="w-4 h-4" />
-            </div>
-            <span className="text-xs font-bold text-slate-900 dark:text-white">
-              SocialX Web & API
-            </span>
-          </div>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            Phase 4
-          </span>
-        </div>
-
-        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mb-3">
-          Full MERN real-time stack with R.9 Admin Moderation, R.10 Ephemeral Secret Chat (PIN, auto-delete, view-once media) & Socket.IO.
-        </p>
-
-        <div className="text-[10px] text-slate-400 font-mono">
-          API: http://localhost:5000/api
-        </div>
-      </div>
     </aside>
   );
 }

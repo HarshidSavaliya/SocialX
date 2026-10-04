@@ -1,17 +1,24 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+export const getApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+  return `http://${host}:5000/api`;
+};
 
 const apiClient = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json'
   }
 });
 
-// Request interceptor to attach JWT Bearer token
+// Request interceptor to attach dynamic host and JWT Bearer token
 apiClient.interceptors.request.use(
   (config) => {
+    config.baseURL = getApiBaseUrl();
     const token = localStorage.getItem('socialx_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -28,10 +35,11 @@ apiClient.interceptors.response.use(
     const message =
       error.response?.data?.message || error.message || 'An unexpected error occurred';
     
-    // Auto-logout on token expiration if appropriate
-    if (error.response?.status === 401 && !error.config.url.includes('/auth/login')) {
-      // Token expired or invalid
-      // localStorage.removeItem('socialx_token');
+    // Auto-clear invalid session on token rejection
+    if (error.response?.status === 401 && !error.config?.url?.includes('/auth/login') && !error.config?.url?.includes('/auth/register')) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('socialx:unauthorized'));
+      }
     }
 
     return Promise.reject(new Error(message));

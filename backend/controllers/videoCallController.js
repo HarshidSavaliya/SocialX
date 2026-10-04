@@ -150,7 +150,9 @@ export const getUserCallHistory = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: history
+      data: history.sessions,
+      sessions: history.sessions,
+      pagination: history.pagination
     });
   } catch (err) {
     next(err);

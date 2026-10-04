@@ -7,7 +7,11 @@ import { videoCallService } from '../services/videoCallService';
 const VideoCallContext = createContext(null);
 
 // Configure Agora Web SDK Logging
-AgoraRTC.setLogLevel(2); // 0: DEBUG, 1: INFO, 2: WARNING, 3: ERROR, 4: NONE
+try {
+  AgoraRTC.setLogLevel(2); // 0: DEBUG, 1: INFO, 2: WARNING, 3: ERROR, 4: NONE
+} catch (e) {
+  // Ignored in SSR / test
+}
 
 export function VideoCallProvider({ children }) {
   const { user, isAuthenticated } = useAuth();
@@ -46,8 +50,31 @@ export function VideoCallProvider({ children }) {
   const [speakingUsers, setSpeakingUsers] = useState({ local: false, remote: false });
   const [localVolumeLevel, setLocalVolumeLevel] = useState(0);
   const [remoteVolumeLevel, setRemoteVolumeLevel] = useState(0);
+
   const durationTimerRef = useRef(null);
   const ringtoneTimeoutRef = useRef(null);
+  const lastVolumeUpdateRef = useRef(0);
+
+  // Keep ref of callStatus for stable socket listeners
+  const callStatusRef = useRef(callStatus);
+  useEffect(() => {
+    callStatusRef.current = callStatus;
+  }, [callStatus]);
+
+  const activeSessionRef = useRef(activeSession);
+  useEffect(() => {
+    activeSessionRef.current = activeSession;
+  }, [activeSession]);
+
+  const outgoingCallRef = useRef(outgoingCall);
+  useEffect(() => {
+    outgoingCallRef.current = outgoingCall;
+  }, [outgoingCall]);
+
+  const incomingCallRef = useRef(incomingCall);
+  useEffect(() => {
+    incomingCallRef.current = incomingCall;
+  }, [incomingCall]);
 
   // -------------------------------------------------------------
   // 1. Initialize Agora Client instance
@@ -56,19 +83,23 @@ export function VideoCallProvider({ children }) {
     if (!agoraClientRef.current) {
       agoraClientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
-      // Enable Agora Volume Indicator (to detect speaking status & numerical level)
+      // Throttle volume events so they do not spam React re-renders
       try {
         agoraClientRef.current.enableAudioVolumeIndicator();
         agoraClientRef.current.on('volume-indicator', (volumes) => {
+          const now = Date.now();
+          if (now - lastVolumeUpdateRef.current < 400) return;
+          lastVolumeUpdateRef.current = now;
+
           let localSpeaking = false;
           let remoteSpeaking = false;
           volumes.forEach(({ uid, level }) => {
             if (uid === 0) {
               setLocalVolumeLevel(level);
-              if (level > 4) localSpeaking = true;
+              if (level > 6) localSpeaking = true;
             } else {
               setRemoteVolumeLevel(level);
-              if (level > 4) remoteSpeaking = true;
+              if (level > 6) remoteSpeaking = true;
             }
           });
           setSpeakingUsers({ local: localSpeaking, remote: remoteSpeaking });
@@ -77,16 +108,14 @@ export function VideoCallProvider({ children }) {
         console.warn('Volume indicator notice:', volErr.message);
       }
 
-      // Modern Agora Web SDK Autoplay Failure Handling (both property & event)
+      // Modern Agora Web SDK Autoplay Failure Handling
       AgoraRTC.onAutoplayFailed = () => {
-        console.warn('AgoraRTC: onAutoplayFailed triggered - browser blocked audio');
         setIsAudioAutoplayBlocked(true);
       };
 
       if (typeof AgoraRTC.on === 'function') {
         try {
           AgoraRTC.on('autoplay-failed', () => {
-            console.warn('AgoraRTC: autoplay-failed event triggered');
             setIsAudioAutoplayBlocked(true);
           });
         } catch (e) {}
@@ -108,13 +137,14 @@ export function VideoCallProvider({ children }) {
           // Play remote tracks
           if (mediaType === 'video' && remoteUser.videoTrack) {
             setTimeout(() => {
-              const remoteContainer = document.getElementById(`remote-video-${remoteUser.uid}`) ||
+              const remoteContainer =
+                document.getElementById(`remote-video-${remoteUser.uid}`) ||
                 document.getElementById('remote-video-container');
               if (remoteContainer) {
                 try {
                   remoteUser.videoTrack.play(remoteContainer);
                 } catch (e) {
-                  console.warn('Remote video play error:', e.message);
+                  console.warn('Remote video play notice:', e.message);
                 }
               }
             }, 100);
@@ -127,7 +157,7 @@ export function VideoCallProvider({ children }) {
                 await remoteUser.audioTrack.play();
               }
             } catch (playErr) {
-              console.warn('Remote audio autoplay blocked by browser policy:', playErr.message);
+              console.warn('Remote audio autoplay notice:', playErr.message);
               setIsAudioAutoplayBlocked(true);
             }
           }
@@ -161,7 +191,7 @@ export function VideoCallProvider({ children }) {
         else setNetworkQuality('poor');
       });
 
-      agoraClientRef.current.on('connection-state-change', (curState, _revState) => {
+      agoraClientRef.current.on('connection-state-change', (curState) => {
         if (curState === 'RECONNECTING') {
           setNetworkQuality('reconnecting');
         } else if (curState === 'CONNECTED') {
@@ -194,15 +224,15 @@ export function VideoCallProvider({ children }) {
   // 3. Cleanup all media hardware and Agora connections
   // -------------------------------------------------------------
   const cleanupMedia = useCallback(async () => {
-    clearInterval(durationTimerRef.current);
-    clearTimeout(ringtoneTimeoutRef.current);
+    if (durationTimerRef.current) clearInterval(durationTimerRef.current);
+    if (ringtoneTimeoutRef.current) clearTimeout(ringtoneTimeoutRef.current);
 
     // Stop and close local audio
     if (localAudioTrackRef.current) {
       try {
         localAudioTrackRef.current.stop();
         localAudioTrackRef.current.close();
-      } catch (e) { }
+      } catch (e) {}
       localAudioTrackRef.current = null;
     }
 
@@ -211,7 +241,7 @@ export function VideoCallProvider({ children }) {
       try {
         localVideoTrackRef.current.stop();
         localVideoTrackRef.current.close();
-      } catch (e) { }
+      } catch (e) {}
       localVideoTrackRef.current = null;
     }
 
@@ -219,7 +249,7 @@ export function VideoCallProvider({ children }) {
     if (agoraClientRef.current) {
       try {
         await agoraClientRef.current.leave();
-      } catch (e) { }
+      } catch (e) {}
     }
 
     setLocalVideoTrack(null);
@@ -233,15 +263,15 @@ export function VideoCallProvider({ children }) {
   }, []);
 
   // -------------------------------------------------------------
-  // 4. Socket.IO Signaling Listeners (PART 7)
+  // 4. Stable Socket.IO Signaling Listeners (NO churn on state changes)
   // -------------------------------------------------------------
   useEffect(() => {
     if (!socket || !isAuthenticated) return;
 
     // A. Incoming call invite from remote peer
     const handleIncomingCall = (data) => {
-      // If already on a call, ignore or emit busy
-      if (callStatus === 'connected' || callStatus === 'outgoing' || callStatus === 'incoming') {
+      const curStatus = callStatusRef.current;
+      if (curStatus === 'connected' || curStatus === 'outgoing' || curStatus === 'incoming') {
         socket.emit('call:busy', {
           callSessionId: data.callSessionId,
           targetUserId: data.caller?._id
@@ -250,22 +280,20 @@ export function VideoCallProvider({ children }) {
       }
 
       setIncomingCall(data);
+      setCurrentCallType(data.callType || 'video');
       setCallStatus('incoming');
       refreshDevices();
     };
 
     // B. Caller receives ringing signal
-    const handleCallRinging = (_data) => {
-      if (callStatus === 'outgoing') {
-        // Still ringing
-      }
+    const handleCallRinging = () => {
+      // Ringing feedback
     };
 
     // C. Caller receives call acceptance from receiver
-    const handleCallAccept = async (_data) => {
+    const handleCallAccept = async () => {
       setCallStatus('connected');
-      // Start duration timer
-      clearInterval(durationTimerRef.current);
+      if (durationTimerRef.current) clearInterval(durationTimerRef.current);
       setCallDuration(0);
       durationTimerRef.current = setInterval(() => {
         setCallDuration((prev) => prev + 1);
@@ -273,7 +301,7 @@ export function VideoCallProvider({ children }) {
     };
 
     // D. Call rejected by peer
-    const handleCallReject = (_data) => {
+    const handleCallReject = () => {
       setCallStatus('ended');
       setAgoraNotice('Call was declined');
       setTimeout(() => {
@@ -281,7 +309,7 @@ export function VideoCallProvider({ children }) {
         setCallStatus('idle');
         setOutgoingCall(null);
         setIncomingCall(null);
-      }, 2500);
+      }, 2000);
     };
 
     // E. Peer is busy on another call
@@ -292,11 +320,11 @@ export function VideoCallProvider({ children }) {
         cleanupMedia();
         setCallStatus('idle');
         setOutgoingCall(null);
-      }, 3000);
+      }, 2500);
     };
 
     // F. Call ended by peer
-    const handleCallEnd = (_data) => {
+    const handleCallEnd = () => {
       setCallStatus('ended');
       setAgoraNotice('Call ended');
       setTimeout(() => {
@@ -305,7 +333,7 @@ export function VideoCallProvider({ children }) {
         setOutgoingCall(null);
         setIncomingCall(null);
         setActiveSession(null);
-      }, 2000);
+      }, 1500);
     };
 
     // G. Missed call timeout signal
@@ -317,7 +345,7 @@ export function VideoCallProvider({ children }) {
         setCallStatus('idle');
         setOutgoingCall(null);
         setIncomingCall(null);
-      }, 2500);
+      }, 2000);
     };
 
     // H. Peer audio/video toggle state
@@ -347,24 +375,28 @@ export function VideoCallProvider({ children }) {
       socket.off('call:missed', handleCallMissed);
       socket.off('call:media-state', handlePeerMediaState);
     };
-  }, [socket, isAuthenticated, callStatus, cleanupMedia, refreshDevices]);
+  }, [socket, isAuthenticated, cleanupMedia, refreshDevices]);
 
   // Page unload cleanup
   useEffect(() => {
     const handleUnload = () => {
-      if (activeSession?._id) {
-        videoCallService.endCall({ callSessionId: activeSession._id, reason: 'Page closed' });
+      const active = activeSessionRef.current;
+      if (active?._id) {
+        videoCallService.endCall({ callSessionId: active._id, reason: 'Page closed' });
       }
       cleanupMedia();
     };
     window.addEventListener('beforeunload', handleUnload);
     return () => window.removeEventListener('beforeunload', handleUnload);
-  }, [activeSession, cleanupMedia]);
+  }, [cleanupMedia]);
+
+  // Call Type State: 'video' | 'audio'
+  const [currentCallType, setCurrentCallType] = useState('video');
 
   // -------------------------------------------------------------
   // 5. Initialize Local Agora Media Tracks
   // -------------------------------------------------------------
-  const initLocalTracks = async () => {
+  const initLocalTracks = async (callType = 'video') => {
     setPermissionError(null);
     let audioTrack = null;
     let videoTrack = null;
@@ -373,31 +405,36 @@ export function VideoCallProvider({ children }) {
       audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
         microphoneId: selectedMic || undefined,
         encoderConfig: 'speech_standard',
-        AEC: true,  // Acoustic Echo Cancellation (prevents howl/feedback)
-        ANS: false, // Avoid aggressive noise gating that clips voice
-        AGC: true   // Automatic Gain Control (amplifies speech to audible level)
+        AEC: true,
+        ANS: false,
+        AGC: true
       });
       audioTrack.setVolume(100);
       localAudioTrackRef.current = audioTrack;
       setLocalAudioTrack(audioTrack);
     } catch (micErr) {
-      console.warn('Microphone permission or hardware error:', micErr.message);
+      console.warn('Microphone permission or hardware notice:', micErr.message);
       setPermissionError('Microphone permission is required for audio.');
     }
 
-    try {
-      videoTrack = await AgoraRTC.createCameraVideoTrack(
-        selectedCamera ? { cameraId: selectedCamera } : undefined
-      );
-      localVideoTrackRef.current = videoTrack;
-      setLocalVideoTrack(videoTrack);
-    } catch (camErr) {
-      console.warn('Camera permission or hardware error:', camErr.message);
-      setPermissionError((prev) =>
-        prev
-          ? 'Camera and microphone permissions are required.'
-          : 'Camera permission is required for video.'
-      );
+    if (callType === 'video') {
+      try {
+        videoTrack = await AgoraRTC.createCameraVideoTrack(
+          selectedCamera ? { cameraId: selectedCamera } : undefined
+        );
+        localVideoTrackRef.current = videoTrack;
+        setLocalVideoTrack(videoTrack);
+      } catch (camErr) {
+        console.warn('Camera permission or hardware notice:', camErr.message);
+        setPermissionError((prev) =>
+          prev
+            ? 'Camera and microphone permissions are required.'
+            : 'Camera permission is required for video.'
+        );
+      }
+    } else {
+      localVideoTrackRef.current = null;
+      setLocalVideoTrack(null);
     }
 
     return { audioTrack, videoTrack };
@@ -408,9 +445,10 @@ export function VideoCallProvider({ children }) {
   // -------------------------------------------------------------
   const startCall = async ({ receiver, conversationId = null, callType = 'video' }) => {
     if (!receiver || !receiver._id) return;
-    if (callStatus !== 'idle') return;
+    if (callStatusRef.current !== 'idle') return;
 
     try {
+      setCurrentCallType(callType);
       setCallStatus('outgoing');
       setOutgoingCall({ receiver, callType });
       setAgoraNotice(null);
@@ -439,7 +477,7 @@ export function VideoCallProvider({ children }) {
         );
 
         // Create local tracks and publish
-        const { audioTrack, videoTrack } = await initLocalTracks();
+        const { audioTrack, videoTrack } = await initLocalTracks(callType);
         const tracksToPublish = [audioTrack, videoTrack].filter(Boolean);
         if (tracksToPublish.length > 0) {
           await client.publish(tracksToPublish);
@@ -456,28 +494,28 @@ export function VideoCallProvider({ children }) {
         console.warn('Agora RTC join status:', agoraErr.message);
         if (agoraData.isDemoKey) {
           setAgoraNotice(
-            'Agora Dev Sandbox: Real media connection requires live AGORA_APP_ID in backend/.env'
+            'Agora Dev Sandbox: Set real AGORA_APP_ID in backend/.env for production media streaming.'
           );
         }
       }
 
       // Auto-timeout after 35 seconds if unanswered (Missed Call)
       ringtoneTimeoutRef.current = setTimeout(async () => {
-        if (callStatus === 'outgoing') {
+        if (callStatusRef.current === 'outgoing') {
           try {
             await videoCallService.markMissed({ callSessionId: session._id });
-          } catch (e) { }
+          } catch (e) {}
           setCallStatus('missed');
           setAgoraNotice('No answer (Missed Call)');
           setTimeout(() => {
             cleanupMedia();
             setCallStatus('idle');
             setOutgoingCall(null);
-          }, 2500);
+          }, 2000);
         }
       }, 35000);
     } catch (err) {
-      console.warn('Start call error:', err.message);
+      console.warn('Start call notice:', err.message);
       if (err.response?.status === 486 || err.statusCode === 486) {
         setCallStatus('busy');
         setAgoraNotice('User is currently on another call.');
@@ -489,7 +527,7 @@ export function VideoCallProvider({ children }) {
         cleanupMedia();
         setCallStatus('idle');
         setOutgoingCall(null);
-      }, 3000);
+      }, 2500);
     }
   };
 
@@ -497,15 +535,18 @@ export function VideoCallProvider({ children }) {
   // 7. Action: Accept Call (Receiver Flow)
   // -------------------------------------------------------------
   const acceptCall = async () => {
-    if (!incomingCall) return;
+    const inc = incomingCallRef.current;
+    if (!inc) return;
 
     try {
       setCallStatus('connected');
-      const sessionId = incomingCall.callSessionId;
+      const sessionId = inc.callSessionId;
 
       const res = await videoCallService.acceptCall({ callSessionId: sessionId });
       const session = res.data.callSession;
       const agoraData = res.data.agora;
+      const callType = inc.callType || session?.callType || res.data?.callType || 'video';
+      setCurrentCallType(callType);
       setActiveSession(session);
 
       // Join Agora RTC Channel as Receiver
@@ -520,7 +561,7 @@ export function VideoCallProvider({ children }) {
         );
 
         // Create local tracks and publish
-        const { audioTrack, videoTrack } = await initLocalTracks();
+        const { audioTrack, videoTrack } = await initLocalTracks(callType);
         const tracksToPublish = [audioTrack, videoTrack].filter(Boolean);
         if (tracksToPublish.length > 0) {
           await client.publish(tracksToPublish);
@@ -537,19 +578,19 @@ export function VideoCallProvider({ children }) {
         console.warn('Agora receiver join status:', agoraErr.message);
         if (agoraData.isDemoKey) {
           setAgoraNotice(
-            'Agora Dev Sandbox: Real media connection requires live AGORA_APP_ID in backend/.env'
+            'Agora Dev Sandbox: Set real AGORA_APP_ID in backend/.env for production media streaming.'
           );
         }
       }
 
       // Start duration counter
-      clearInterval(durationTimerRef.current);
+      if (durationTimerRef.current) clearInterval(durationTimerRef.current);
       setCallDuration(0);
       durationTimerRef.current = setInterval(() => {
         setCallDuration((prev) => prev + 1);
       }, 1000);
     } catch (err) {
-      console.warn('Accept call error:', err.message);
+      console.warn('Accept call notice:', err.message);
       setCallStatus('ended');
       setAgoraNotice('Failed to accept call');
       setTimeout(() => {
@@ -564,13 +605,14 @@ export function VideoCallProvider({ children }) {
   // 8. Action: Reject Call (Receiver Flow)
   // -------------------------------------------------------------
   const rejectCall = async (reason = 'declined') => {
-    if (!incomingCall) return;
-    const sessionId = incomingCall.callSessionId;
+    const inc = incomingCallRef.current;
+    if (!inc) return;
+    const sessionId = inc.callSessionId;
 
     try {
       await videoCallService.rejectCall({ callSessionId: sessionId, reason });
     } catch (err) {
-      console.warn('Reject call error:', err.message);
+      console.warn('Reject call notice:', err.message);
     } finally {
       cleanupMedia();
       setCallStatus('idle');
@@ -582,13 +624,16 @@ export function VideoCallProvider({ children }) {
   // 9. Action: End Call (Either participant)
   // -------------------------------------------------------------
   const endCall = async (reason = 'ended') => {
-    const sessionId = activeSession?._id || outgoingCall?.callSessionId || incomingCall?.callSessionId;
+    const active = activeSessionRef.current;
+    const outg = outgoingCallRef.current;
+    const inc = incomingCallRef.current;
+    const sessionId = active?._id || outg?.callSessionId || inc?.callSessionId;
 
     if (sessionId) {
       try {
         await videoCallService.endCall({ callSessionId: sessionId, reason });
       } catch (err) {
-        console.warn('End call error:', err.message);
+        console.warn('End call notice:', err.message);
       }
     }
 
@@ -601,7 +646,7 @@ export function VideoCallProvider({ children }) {
       setOutgoingCall(null);
       setIncomingCall(null);
       setActiveSession(null);
-    }, 1500);
+    }, 1200);
   };
 
   // -------------------------------------------------------------
@@ -676,30 +721,10 @@ export function VideoCallProvider({ children }) {
   };
 
   // -------------------------------------------------------------
-  // 11. Resume / Unlock Audio after Browser Autoplay Restriction
+  // 11. Resume Audio (Browser Autoplay Policy Resolution)
   // -------------------------------------------------------------
   const resumeAudio = useCallback(async () => {
     setIsAudioAutoplayBlocked(false);
-
-    // Force-unlock browser AudioContext on user interaction
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        if (ctx.state === 'suspended') {
-          await ctx.resume();
-        }
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        gain.gain.value = 0.001; // inaudible unlock pulse
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.04);
-      }
-    } catch (unlockErr) {
-      console.warn('AudioContext unlock notice:', unlockErr.message);
-    }
 
     for (const u of remoteUsers) {
       if (u.audioTrack) {
@@ -709,14 +734,14 @@ export function VideoCallProvider({ children }) {
             await u.audioTrack.play();
           }
         } catch (e) {
-          console.warn('Resume audio retry notice:', e.message);
+          console.warn('Resume audio notice:', e.message);
         }
       }
     }
   }, [remoteUsers, isSpeakerMuted]);
 
   // -------------------------------------------------------------
-  // 12. Device Switching (PART 12)
+  // 12. Device Switching
   // -------------------------------------------------------------
   const switchCamera = async (deviceId) => {
     setSelectedCamera(deviceId);
@@ -742,6 +767,7 @@ export function VideoCallProvider({ children }) {
 
   const value = {
     callStatus,
+    callType: currentCallType,
     incomingCall,
     outgoingCall,
     activeSession,

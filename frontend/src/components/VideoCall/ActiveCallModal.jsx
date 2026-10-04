@@ -10,14 +10,17 @@ import {
   Settings,
   Signal,
   AlertTriangle,
-  Info
+  Info,
+  Phone
 } from 'lucide-react';
 import { useVideoCall } from '../../context/VideoCallContext';
+import { getUserAvatar, handleImageError } from '../../utils/avatar';
 import DeviceSelectorModal from './DeviceSelectorModal';
 
 export default function ActiveCallModal() {
   const {
     callStatus,
+    callType,
     activeSession,
     incomingCall,
     outgoingCall,
@@ -48,6 +51,12 @@ export default function ActiveCallModal() {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
 
+  const isAudioCall =
+    callType === 'audio' ||
+    outgoingCall?.callType === 'audio' ||
+    incomingCall?.callType === 'audio' ||
+    activeSession?.callType === 'audio';
+
   // Determine peer user details
   const peer =
     incomingCall?.caller ||
@@ -59,33 +68,33 @@ export default function ActiveCallModal() {
   // 1. Declaratively attach Local Video Track to Picture-in-Picture
   // -------------------------------------------------------------
   useEffect(() => {
-    if (callStatus !== 'connected' || !localVideoRef.current || !localVideoTrack) return;
+    if (isAudioCall || callStatus !== 'connected' || !localVideoRef.current || !localVideoTrack) return;
 
     try {
       localVideoTrack.play(localVideoRef.current);
     } catch (err) {
-      console.warn('Error playing local video track:', err.message);
+      console.warn('Notice playing local video track:', err.message);
     }
-  }, [callStatus, localVideoTrack]);
+  }, [isAudioCall, callStatus, localVideoTrack]);
 
   // -------------------------------------------------------------
   // 2. Declaratively attach Remote Video Track to Main Stage
   // -------------------------------------------------------------
   useEffect(() => {
-    if (callStatus !== 'connected' || !remoteVideoRef.current) return;
+    if (isAudioCall || callStatus !== 'connected' || !remoteVideoRef.current) return;
 
     const userWithVideo = remoteUsers.find((u) => u.videoTrack);
     if (userWithVideo?.videoTrack) {
       try {
         userWithVideo.videoTrack.play(remoteVideoRef.current);
       } catch (err) {
-        console.warn('Error playing remote video track:', err.message);
+        console.warn('Notice playing remote video track:', err.message);
       }
     }
-  }, [callStatus, remoteUsers]);
+  }, [isAudioCall, callStatus, remoteUsers]);
 
   // -------------------------------------------------------------
-  // 3. Ensure Remote Audio Playback (Only if not already playing)
+  // 3. Ensure Remote Audio Playback
   // -------------------------------------------------------------
   useEffect(() => {
     if (callStatus !== 'connected') return;
@@ -98,14 +107,14 @@ export default function ActiveCallModal() {
             await u.audioTrack.play();
           }
         } catch (err) {
-          console.warn('Autoplay check notice for remote audio:', err.message);
+          console.warn('Autoplay notice for remote audio:', err.message);
         }
       }
     });
   }, [callStatus, remoteUsers]);
 
   // -------------------------------------------------------------
-  // 4. Update speaker volume independently without restarting playback
+  // 4. Update speaker volume independently
   // -------------------------------------------------------------
   useEffect(() => {
     remoteUsers.forEach((u) => {
@@ -127,7 +136,7 @@ export default function ActiveCallModal() {
     return `${mins.toString().padStart(2, '0')}:${rem.toString().padStart(2, '0')}`;
   };
 
-  const hasRemoteVideo = remoteUsers.some((u) => u.videoTrack && !peerMediaState.isVideoMuted);
+  const hasRemoteVideo = !isAudioCall && remoteUsers.some((u) => u.videoTrack && !peerMediaState.isVideoMuted);
 
   return (
     <div
@@ -138,50 +147,122 @@ export default function ActiveCallModal() {
       }}
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-2xl p-2 sm:p-4 md:p-6 animate-in fade-in duration-300"
     >
-      {/* Video Container Shell */}
+      {/* Container Shell */}
       <div className="relative w-full max-w-5xl h-[92vh] max-h-[840px] rounded-3xl overflow-hidden bg-[#0c0d14] border border-white/10 shadow-2xl flex flex-col justify-between">
         
         {/* =========================================================================
-            REMOTE VIDEO STAGE (PRIMARY FOCUS)
+            STAGE BACKGROUND & VISUALS
             ========================================================================= */}
         <div className="absolute inset-0 z-0 bg-slate-950 flex items-center justify-center overflow-hidden">
-          {/* Agora Remote Video Render Container */}
-          <div
-            ref={remoteVideoRef}
-            id="remote-video-container"
-            className={`w-full h-full object-cover transition-opacity duration-300 ${
-              hasRemoteVideo ? 'opacity-100' : 'opacity-0'
-            }`}
-          />
+          
+          {/* Audio Call Background Ambient Effects */}
+          {isAudioCall ? (
+            <div className="relative w-full h-full flex flex-col items-center justify-center p-6 select-none">
+              <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-[120px] pointer-events-none" />
+              <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none" />
 
-          {/* Fallback when Remote Video is Off or Connecting */}
-          {!hasRemoteVideo && (
-            <div className="flex flex-col items-center justify-center text-center p-6 space-y-4">
-              <div className="relative w-28 h-28 sm:w-36 sm:h-36 rounded-full overflow-hidden border-2 border-white/20 shadow-2xl">
-                <img
-                  src={
-                    peer.profileImage ||
-                    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80'
-                  }
-                  alt={peer.name || 'Peer'}
-                  className="w-full h-full object-cover"
+              {/* Central Voice Avatar with Live Audio Wave Visualizer Rings */}
+              <div className="relative flex items-center justify-center mb-6">
+                {/* Concentric Audio Pulse Rings when remote user speaks */}
+                <div
+                  className={`absolute rounded-full border border-emerald-500/20 transition-all duration-300 pointer-events-none ${
+                    remoteVolumeLevel > 3
+                      ? 'w-72 h-72 sm:w-80 sm:h-80 opacity-100 scale-105 animate-ping [animation-duration:2.5s]'
+                      : 'w-44 h-44 opacity-0 scale-90'
+                  }`}
                 />
+                <div
+                  className={`absolute rounded-full border-2 border-emerald-400/30 transition-all duration-200 pointer-events-none ${
+                    remoteVolumeLevel > 4
+                      ? 'w-56 h-56 sm:w-64 sm:h-64 opacity-100 animate-pulse'
+                      : 'w-40 h-40 opacity-0'
+                  }`}
+                />
+
+                {/* Avatar */}
+                <div className="relative w-36 h-36 sm:w-44 sm:h-44 rounded-full overflow-hidden border-4 border-white/20 shadow-2xl z-10">
+                  <img
+                    src={getUserAvatar(peer)}
+                    alt={peer.name || 'User'}
+                    onError={(e) => handleImageError(e, peer.name)}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
               </div>
-              <div>
-                <h4 className="text-xl font-bold text-white tracking-tight">
+
+              {/* Peer Details & Speaking Waves */}
+              <div className="text-center z-10 space-y-2">
+                <h3 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
                   {peer.name || 'Connected User'}
-                </h4>
-                <p className="text-xs text-white/60 font-medium">
-                  {peerMediaState.isVideoMuted
-                    ? 'Camera is switched off'
-                    : 'Connecting video stream...'}
+                </h3>
+                <p className="text-xs sm:text-sm text-white/60 font-medium">
+                  @{peer.username || 'user'}
                 </p>
+
+                {/* Live Speaking Indicator */}
+                <div className="inline-flex items-center gap-2 bg-black/40 backdrop-blur-md border border-white/10 px-4 py-1.5 rounded-full text-xs">
+                  {peerMediaState.isAudioMuted ? (
+                    <>
+                      <MicOff className="w-3.5 h-3.5 text-rose-400" />
+                      <span className="text-rose-300 font-medium">Microphone Muted</span>
+                    </>
+                  ) : remoteVolumeLevel > 4 ? (
+                    <>
+                      <div className="flex items-end gap-0.5 h-3 w-3">
+                        <span className="w-0.5 h-3 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.1s]" />
+                        <span className="w-0.5 h-2 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.3s]" />
+                        <span className="w-0.5 h-3.5 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.2s]" />
+                      </div>
+                      <span className="text-emerald-400 font-semibold">Speaking</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-slate-300 font-medium">Connected</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
-          )}
+          ) : (
+            <>
+              {/* Agora Remote Video Render Container */}
+              <div
+                ref={remoteVideoRef}
+                id="remote-video-container"
+                className={`w-full h-full object-cover transition-opacity duration-300 ${
+                  hasRemoteVideo ? 'opacity-100' : 'opacity-0'
+                }`}
+              />
 
-          {/* Vignette Gradients */}
-          <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/85 via-transparent to-black/60" />
+              {/* Fallback when Remote Video is Off or Connecting */}
+              {!hasRemoteVideo && (
+                <div className="flex flex-col items-center justify-center text-center p-6 space-y-4">
+                  <div className="relative w-28 h-28 sm:w-36 sm:h-36 rounded-full overflow-hidden border-2 border-white/20 shadow-2xl">
+                    <img
+                      src={getUserAvatar(peer)}
+                      alt={peer.name || 'Peer'}
+                      onError={(e) => handleImageError(e, peer.name)}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div>
+                    <h4 className="text-xl font-bold text-white tracking-tight">
+                      {peer.name || 'Connected User'}
+                    </h4>
+                    <p className="text-xs text-white/60 font-medium">
+                      {peerMediaState.isVideoMuted
+                        ? 'Camera is switched off'
+                        : 'Connecting video stream...'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Vignette Gradients */}
+              <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/85 via-transparent to-black/60" />
+            </>
+          )}
         </div>
 
         {/* =========================================================================
@@ -223,7 +304,9 @@ export default function ActiveCallModal() {
                     : 'text-indigo-400'
                 }`}
               />
-              <span className="hidden sm:inline">Agora RTC HD</span>
+              <span className="hidden sm:inline">
+                {isAudioCall ? 'HD Audio' : 'Agora RTC HD'}
+              </span>
               <span className="text-emerald-400 font-mono text-[10px]">
                 {networkQuality === 'reconnecting' ? 'Reconnecting' : 'Live'}
               </span>
@@ -234,7 +317,7 @@ export default function ActiveCallModal() {
               onClick={() => setShowDeviceSelector(true)}
               aria-label="Audio and Video Settings"
               className="p-2 rounded-full bg-black/50 hover:bg-white/10 text-white/80 hover:text-white border border-white/10 transition-colors cursor-pointer"
-              title="Select Camera & Microphone"
+              title="Select Microphone & Output"
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -259,8 +342,8 @@ export default function ActiveCallModal() {
             </button>
           )}
 
-          {/* Permission Warning Banner */}
-          {permissionError && (
+          {/* Permission Warning Banner (Only show if not an audio call camera error) */}
+          {permissionError && (!isAudioCall || !permissionError.includes('Camera')) && (
             <div className="flex items-center gap-2 bg-amber-500/90 backdrop-blur-md text-amber-950 font-bold px-4 py-2 rounded-2xl shadow-xl text-xs pointer-events-auto">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" />
               <span>{permissionError}</span>
@@ -291,49 +374,50 @@ export default function ActiveCallModal() {
         </div>
 
         {/* =========================================================================
-            LOCAL VIDEO PREVIEW (PICTURE-IN-PICTURE)
+            LOCAL VIDEO PREVIEW (PICTURE-IN-PICTURE) — VIDEO CALL ONLY
             ========================================================================= */}
-        <div
-          className={`absolute bottom-24 right-4 sm:right-6 z-20 w-32 sm:w-44 h-44 sm:h-56 rounded-2xl overflow-hidden shadow-2xl border-2 transition-all ${
-            speakingUsers?.local || localVolumeLevel > 5
-              ? 'border-emerald-400 ring-4 ring-emerald-400/30'
-              : 'border-white/20'
-          } bg-slate-900 group`}
-        >
-          {/* Local Video Render Container */}
+        {!isAudioCall && (
           <div
-            ref={localVideoRef}
-            id="local-video-container"
-            className={`w-full h-full object-cover transition-opacity duration-300 ${
-              isCamMuted ? 'opacity-0' : 'opacity-100'
-            }`}
-          />
+            className={`absolute bottom-24 right-4 sm:right-6 z-20 w-32 sm:w-44 h-44 sm:h-56 rounded-2xl overflow-hidden shadow-2xl border-2 transition-all ${
+              speakingUsers?.local || localVolumeLevel > 5
+                ? 'border-emerald-400 ring-4 ring-emerald-400/30'
+                : 'border-white/20'
+            } bg-slate-900 group`}
+          >
+            {/* Local Video Render Container */}
+            <div
+              ref={localVideoRef}
+              id="local-video-container"
+              className={`w-full h-full object-cover transition-opacity duration-300 ${
+                isCamMuted ? 'opacity-0' : 'opacity-100'
+              }`}
+            />
 
-          {/* Camera Off Placeholder */}
-          {isCamMuted && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 text-xs bg-slate-900">
-              <VideoOff className="w-6 h-6 mb-1 text-rose-400" />
-              <span>Camera Off</span>
-            </div>
-          )}
-
-          <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-[10px] text-white font-medium flex items-center gap-1.5">
-            <span>You</span>
-            {isMicMuted ? (
-              <MicOff className="w-2.5 h-2.5 text-rose-400" />
-            ) : (
-              <div className="flex items-end gap-0.5 h-2.5 w-2.5" title={`Mic input: ${localVolumeLevel}%`}>
-                <span className={`w-0.5 bg-emerald-400 rounded-full transition-all duration-100 ${localVolumeLevel > 3 ? 'h-2.5' : 'h-1'}`} />
-                <span className={`w-0.5 bg-emerald-400 rounded-full transition-all duration-100 ${localVolumeLevel > 15 ? 'h-2.5' : 'h-1.5'}`} />
-                <span className={`w-0.5 bg-emerald-400 rounded-full transition-all duration-100 ${localVolumeLevel > 30 ? 'h-2.5' : 'h-1'}`} />
+            {/* Camera Off Placeholder */}
+            {isCamMuted && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 text-xs bg-slate-900">
+                <VideoOff className="w-6 h-6 mb-1 text-rose-400" />
+                <span>Camera Off</span>
               </div>
             )}
+
+            <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-[10px] text-white font-medium flex items-center gap-1.5">
+              <span>You</span>
+              {isMicMuted ? (
+                <MicOff className="w-2.5 h-2.5 text-rose-400" />
+              ) : (
+                <div className="flex items-end gap-0.5 h-2.5 w-2.5" title={`Mic input: ${localVolumeLevel}%`}>
+                  <span className={`w-0.5 bg-emerald-400 rounded-full transition-all duration-100 ${localVolumeLevel > 3 ? 'h-2.5' : 'h-1'}`} />
+                  <span className={`w-0.5 bg-emerald-400 rounded-full transition-all duration-100 ${localVolumeLevel > 15 ? 'h-2.5' : 'h-1.5'}`} />
+                  <span className={`w-0.5 bg-emerald-400 rounded-full transition-all duration-100 ${localVolumeLevel > 30 ? 'h-2.5' : 'h-1'}`} />
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* =========================================================================
             BOTTOM CONTROLS DOCK (GLASSMORPHIC BAR)
-            🎤  📹  🔊  ☎
             ========================================================================= */}
         <div className="relative z-20 p-4 sm:p-6 flex items-center justify-center">
           <div className="flex items-center gap-3 sm:gap-4 p-2.5 sm:p-3 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 shadow-2xl">
@@ -351,21 +435,23 @@ export default function ActiveCallModal() {
               {!isMicMuted ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
             </button>
 
-            {/* 📹 Camera Toggle */}
-            <button
-              onClick={toggleCam}
-              aria-label={isCamMuted ? 'Turn Camera On' : 'Turn Camera Off'}
-              className={`p-3 sm:p-3.5 rounded-full transition-all cursor-pointer ${
-                !isCamMuted
-                  ? 'bg-white/10 hover:bg-white/20 text-white'
-                  : 'bg-rose-500 text-white shadow-md shadow-rose-500/30'
-              }`}
-              title={isCamMuted ? 'Turn Camera On' : 'Turn Camera Off'}
-            >
-              {!isCamMuted ? <VideoIcon className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-            </button>
+            {/* 📹 Camera Toggle (Video Calls Only) */}
+            {!isAudioCall && (
+              <button
+                onClick={toggleCam}
+                aria-label={isCamMuted ? 'Turn Camera On' : 'Turn Camera Off'}
+                className={`p-3 sm:p-3.5 rounded-full transition-all cursor-pointer ${
+                  !isCamMuted
+                    ? 'bg-white/10 hover:bg-white/20 text-white'
+                    : 'bg-rose-500 text-white shadow-md shadow-rose-500/30'
+                }`}
+                title={isCamMuted ? 'Turn Camera On' : 'Turn Camera Off'}
+              >
+                {!isCamMuted ? <VideoIcon className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+              </button>
+            )}
 
-            {/* 🔊 Speaker Output Toggle */}
+            {/* 🔊 Speaker Toggle */}
             <button
               onClick={toggleSpeaker}
               aria-label={isSpeakerMuted ? 'Unmute Audio' : 'Mute Audio'}
@@ -379,24 +465,20 @@ export default function ActiveCallModal() {
               {!isSpeakerMuted ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
             </button>
 
-            {/* ☎ End Call (Crimson Pill) */}
+            {/* ☎ End Call Button */}
             <button
-              onClick={() => endCall('user_ended')}
-              aria-label="End Video Call"
-              className="px-5 py-3 sm:py-3.5 rounded-full bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold flex items-center gap-2 shadow-lg shadow-rose-600/40 transition-all cursor-pointer"
-              title="End Call"
+              onClick={() => endCall('ended')}
+              aria-label="End Call"
+              className="p-3 sm:p-3.5 rounded-full bg-rose-600 hover:bg-rose-700 active:scale-95 text-white shadow-lg shadow-rose-600/40 transition-all cursor-pointer"
+              title="Hang Up"
             >
               <PhoneOff className="w-5 h-5" />
-              <span className="text-xs tracking-wider uppercase font-extrabold hidden sm:inline">
-                End
-              </span>
             </button>
           </div>
         </div>
-
       </div>
 
-      {/* Device Selector Modal */}
+      {/* Device Selection Modal */}
       {showDeviceSelector && (
         <DeviceSelectorModal isOpen={showDeviceSelector} onClose={() => setShowDeviceSelector(false)} />
       )}

@@ -68,11 +68,11 @@ export default function FollowButton({
       disabled={isLoading}
       className={`rounded-full font-bold transition-all duration-200 flex items-center justify-center gap-1.5 select-none ${sizeClasses} ${isFollowing
           ? isDark
-            ? 'bg-white/10 hover:bg-rose-500/20 text-slate-200 hover:text-rose-400 border border-white/10 hover:border-rose-500/30'
-            : 'bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-600 border border-slate-200 hover:border-rose-200'
+            ? 'bg-white/10 hover:bg-rose-500/20 text-stone-200 hover:text-rose-400 border border-white/15 hover:border-rose-500/30'
+            : 'bg-stone-100 hover:bg-rose-50 text-stone-700 hover:text-rose-600 border border-stone-200 hover:border-rose-200'
           : isDark
-            ? 'bg-white text-slate-950 hover:bg-slate-100 shadow-sm'
-            : 'bg-slate-900 text-white hover:bg-black shadow-xs'
+            ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-stone-950 font-extrabold hover:brightness-110 shadow-xs'
+            : 'bg-stone-900 text-white hover:bg-black shadow-xs'
         } ${isLoading ? 'opacity-60 cursor-not-allowed' : ''} ${className}`}
     >
       {isLoading ? (

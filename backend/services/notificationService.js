@@ -28,9 +28,10 @@ class NotificationService {
       relatedUser
     });
 
-    const populated = await Notification.findById(notification._id)
-      .populate('sender', 'name username profileImage')
-      .populate('relatedPost', 'caption mediaUrl');
+    await notification.populate([
+      { path: 'sender', select: 'name username profileImage' },
+      { path: 'relatedPost', select: 'caption mediaUrl' }
+    ]);
 
     // Emit real-time notification to recipient via Socket.IO
     try {
@@ -39,13 +40,13 @@ class NotificationService {
         isRead: false
       });
 
-      emitToUser(recipient, 'notification:new', populated);
+      emitToUser(recipient, 'notification:new', notification);
       emitToUser(recipient, 'notification:unread-count', { unreadCount });
     } catch (socketErr) {
       console.warn('Socket notification emit notice:', socketErr.message);
     }
 
-    return populated;
+    return notification;
   }
 
   async getUserNotifications(userId, { page = 1, limit = 20 } = {}) {
@@ -57,7 +58,8 @@ class NotificationService {
         .skip(skip)
         .limit(Number(limit))
         .populate('sender', 'name username profileImage')
-        .populate('relatedPost', 'caption mediaUrl'),
+        .populate('relatedPost', 'caption mediaUrl')
+        .lean(),
       Notification.countDocuments({ recipient: userId }),
       Notification.countDocuments({ recipient: userId, isRead: false })
     ]);
@@ -80,21 +82,16 @@ class NotificationService {
   }
 
   async markAsRead(notificationId, userId) {
-    const notification = await Notification.findOne({
-      _id: notificationId,
-      recipient: userId
-    });
+    const notification = await Notification.findOneAndUpdate(
+      { _id: notificationId, recipient: userId },
+      { $set: { isRead: true, readAt: new Date() } },
+      { new: true }
+    );
 
     if (!notification) {
       const error = new Error('Notification not found');
       error.statusCode = 404;
       throw error;
-    }
-
-    if (!notification.isRead) {
-      notification.isRead = true;
-      notification.readAt = new Date();
-      await notification.save();
     }
 
     const unreadCount = await Notification.countDocuments({

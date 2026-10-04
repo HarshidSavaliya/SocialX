@@ -4,21 +4,22 @@ const ThemeContext = createContext();
 
 export function ThemeProvider({ children }) {
   const [isDark, setIsDark] = useState(() => {
-    const saved = localStorage.getItem('socialx_theme');
+    const saved = localStorage.getItem('socialx_theme_v2');
     if (saved !== null) {
       return saved === 'dark';
     }
-    return false; // Default to Light Mode (as requested by Image 1 primary feed inspiration), with full dark mode toggle (Image 2)
+    // Default to obsidian dark theme matching reference mockup
+    return true;
   });
 
   useEffect(() => {
     const root = document.documentElement;
     if (isDark) {
       root.classList.add('dark');
-      localStorage.setItem('socialx_theme', 'dark');
+      localStorage.setItem('socialx_theme_v2', 'dark');
     } else {
       root.classList.remove('dark');
-      localStorage.setItem('socialx_theme', 'light');
+      localStorage.setItem('socialx_theme_v2', 'light');
     }
   }, [isDark]);
 

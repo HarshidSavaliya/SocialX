@@ -28,6 +28,15 @@ export function AuthProvider({ children }) {
     };
 
     initializeAuth();
+
+    const handleUnauthorized = () => {
+      localStorage.removeItem('socialx_token');
+      setUser(null);
+      setToken(null);
+    };
+
+    window.addEventListener('socialx:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('socialx:unauthorized', handleUnauthorized);
   }, []);
 
   const login = async ({ emailOrUsername, password }) => {

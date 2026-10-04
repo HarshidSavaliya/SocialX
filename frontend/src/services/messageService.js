@@ -18,7 +18,17 @@ export const messageService = {
     return res.data.data;
   },
 
-  async sendMessage({ receiverId, text, mediaUrl, mediaType }) {
+  async sendMessage({ receiverId, text, mediaUrl, mediaType, file }) {
+    if (file) {
+      const formData = new FormData();
+      formData.append('receiverId', receiverId);
+      if (text) formData.append('text', text);
+      formData.append('media', file);
+      const res = await apiClient.post('/messages', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return res.data.data.message;
+    }
     const res = await apiClient.post('/messages', { receiverId, text, mediaUrl, mediaType });
     return res.data.data.message;
   },

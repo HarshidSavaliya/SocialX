@@ -5,8 +5,7 @@ const commentSchema = new mongoose.Schema(
     post: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Post',
-      required: [true, 'Comment must reference a post'],
-      index: true
+      required: [true, 'Comment must reference a post']
     },
     author: {
       type: mongoose.Schema.Types.ObjectId,

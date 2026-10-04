@@ -9,10 +9,7 @@
     "dev-server": "npm --prefix backend run dev",
     "dev-client": "npm --prefix frontend run dev",
     "dev": "npm --prefix frontend run dev",
-    "build-client": "npm --prefix frontend run build",
-    "test": "npm --prefix backend test",
-    "test-phase5": "npm --prefix backend run test:phase5",
-    "test:qa": "npm --prefix backend run test:qa"
+    "build-client": "npm --prefix frontend run build"
   },
   "repository": {
     "type": "git",

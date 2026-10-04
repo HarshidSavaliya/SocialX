@@ -36,6 +36,7 @@ router.get('/:id/following', optionalAuth, getFollowing);
 
 // User posts and public profile
 router.get('/:username/posts', optionalAuth, getUserPosts);
+router.get('/profile/:username', optionalAuth, getUserProfile);
 router.get('/:username', optionalAuth, getUserProfile);
 
 export default router;

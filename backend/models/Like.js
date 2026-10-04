@@ -5,8 +5,7 @@ const likeSchema = new mongoose.Schema(
     post: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Post',
-      required: [true, 'Like must reference a post'],
-      index: true
+      required: [true, 'Like must reference a post']
     },
     user: {
       type: mongoose.Schema.Types.ObjectId,

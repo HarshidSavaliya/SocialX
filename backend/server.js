@@ -25,6 +25,9 @@ import secretMessageRoutes from './routes/secretMessageRoutes.js';
 // Phase 5 Routes (Agora Video Calling & Lifecycle)
 import videoCallRoutes from './routes/videoCallRoutes.js';
 
+// Stories Feature Routes
+import storyRoutes from './routes/storyRoutes.js';
+
 // Middleware
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 
@@ -35,7 +38,10 @@ const app = express();
 
 app.use(
   cors({
-    origin: '*',
+    origin: (origin, callback) => {
+      // Allow all origins (localhost, LAN IP, remote devices) with credentials support
+      callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-secret-token']
@@ -74,6 +80,9 @@ app.use('/api/secret-messages', secretMessageRoutes);
 
 // Phase 5 API Routes
 app.use('/api/video-calls', videoCallRoutes);
+
+// Stories API Routes
+app.use('/api/stories', storyRoutes);
 
 // Error Handling
 app.use(notFound);

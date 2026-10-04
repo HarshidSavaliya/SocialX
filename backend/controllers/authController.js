@@ -8,7 +8,9 @@ export const register = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Account registered successfully',
-      data: result
+      data: result,
+      token: result.token,
+      user: result.user
     });
   } catch (error) {
     next(error);
@@ -28,7 +30,9 @@ export const login = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Logged in successfully',
-      data: result
+      data: result,
+      token: result.token,
+      user: result.user
     });
   } catch (error) {
     next(error);
@@ -48,11 +52,14 @@ export const getMe = async (req, res, next) => {
       success: true,
       data: {
         id: req.user._id,
+        _id: req.user._id,
         name: req.user.name,
         username: req.user.username,
         email: req.user.email,
         bio: req.user.bio,
-        profileImage: req.user.profileImage,
+        title: req.user.title || '',
+        avatar: req.user.avatar || req.user.profileImage,
+        profileImage: req.user.profileImage || req.user.avatar,
         coverImage: req.user.coverImage,
         location: req.user.location,
         website: req.user.website,

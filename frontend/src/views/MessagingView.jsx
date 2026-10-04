@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Search, Send, ChevronLeft, Check, CheckCheck,
-  Lock, Loader2, MessageSquare, Video
+  Lock, Loader2, MessageSquare, Video, Phone,
+  Image as ImageIcon, Smile, X, Paperclip
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -10,6 +11,7 @@ import { useVideoCall } from '../context/VideoCallContext';
 import { messageService } from '../services/messageService';
 import { searchService } from '../services/searchService';
 import { formatConversationTime, formatMessageTime } from '../utils/dateTime';
+import { getUserAvatar, handleImageError } from '../utils/avatar';
 
 export default function MessagingView({ onOpenSecretChat }) {
   const { isDark } = useTheme();
@@ -30,10 +32,15 @@ export default function MessagingView({ onOpenSecretChat }) {
   const [searchingFollowing, setSearchingFollowing] = useState(false);
   const [followingSearchError, setFollowingSearchError] = useState('');
   const [mobileView, setMobileView] = useState('list'); // 'list' | 'chat'
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [filePreview, setFilePreview] = useState(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const messagesEndRef = useRef(null);
   const typingTimerRef = useRef(null);
   const prevConvRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const activeConv = conversations.find(c => c._id === activeConvId);
   const activeOther = activeConv?.otherUser;
@@ -180,17 +187,49 @@ export default function MessagingView({ onOpenSecretChat }) {
     }
   };
 
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSelectedFile(file);
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => setFilePreview(reader.result);
+      reader.readAsDataURL(file);
+    } else {
+      setFilePreview(null);
+    }
+  };
+
+  const clearSelectedFile = () => {
+    setSelectedFile(null);
+    setFilePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleEmojiSelect = (emoji) => {
+    setMessageInput(prev => prev + emoji);
+  };
+
   // Send message
   const handleSend = async (e) => {
-    e.preventDefault();
-    if (!messageInput.trim() || !activeOther) return;
+    if (e) e.preventDefault();
+    if ((!messageInput.trim() && !selectedFile) || !activeOther || sending) return;
     const text = messageInput.trim();
+    const fileToSend = selectedFile;
+
     setMessageInput('');
+    clearSelectedFile();
+    setSending(true);
+
     if (socket && activeConvId) {
       socket.emit('typing:stop', { conversationId: activeConvId });
     }
     try {
-      const msg = await messageService.sendMessage({ receiverId: activeOther._id, text });
+      const msg = await messageService.sendMessage({
+        receiverId: activeOther._id,
+        text,
+        file: fileToSend
+      });
       setMessages(prev => {
         if (prev.some(m => m._id === msg._id)) return prev;
         return [...prev, msg];
@@ -198,6 +237,8 @@ export default function MessagingView({ onOpenSecretChat }) {
     } catch (e) {
       console.warn('Send message error:', e.message);
       setMessageInput(text);
+    } finally {
+      setSending(false);
     }
   };
 
@@ -328,7 +369,8 @@ export default function MessagingView({ onOpenSecretChat }) {
                     className={`w-full flex items-center gap-2.5 rounded-xl p-2 text-left transition-colors ${isDark ? 'hover:bg-white/[0.06]' : 'hover:bg-slate-100'}`}
                   >
                     <img
-                      src={friend.profileImage}
+                      src={getUserAvatar(friend)}
+                      onError={(e) => handleImageError(e, friend.name)}
                       alt={friend.name}
                       className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
                     />
@@ -378,8 +420,12 @@ export default function MessagingView({ onOpenSecretChat }) {
                     }`}
                 >
                   <div className="relative flex-shrink-0">
-                    <img src={other?.profileImage} alt={other?.name}
-                      className="w-11 h-11 rounded-full object-cover" />
+                    <img
+                      src={getUserAvatar(other)}
+                      onError={(e) => handleImageError(e, other?.name)}
+                      alt={other?.name}
+                      className="w-11 h-11 rounded-full object-cover"
+                    />
                     {isOnline && (
                       <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#12141c]" />
                     )}
@@ -424,8 +470,12 @@ export default function MessagingView({ onOpenSecretChat }) {
                 <ChevronLeft className="w-5 h-5" />
               </button>
               <div className="relative">
-                <img src={activeOther?.profileImage} alt={activeOther?.name}
-                  className="w-9 h-9 rounded-full object-cover" />
+                <img
+                  src={getUserAvatar(activeOther)}
+                  onError={(e) => handleImageError(e, activeOther?.name)}
+                  alt={activeOther?.name}
+                  className="w-9 h-9 rounded-full object-cover"
+                />
                 {isOtherOnline && (
                   <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#12141c]" />
                 )}
@@ -439,7 +489,25 @@ export default function MessagingView({ onOpenSecretChat }) {
                 </p>
               </div>
 
-              {/* Video Call Action Button (Phase 5 Agora RTC) */}
+              {/* Voice Call Action Button */}
+              {activeOther && (
+                <button
+                  onClick={() =>
+                    startCall({
+                      receiver: activeOther,
+                      conversationId: activeConvId,
+                      callType: 'audio'
+                    })
+                  }
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-all shadow-xs cursor-pointer"
+                  title="Start Voice Call"
+                >
+                  <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden sm:inline">Voice Call</span>
+                </button>
+              )}
+
+              {/* Video Call Action Button (Agora RTC) */}
               {activeOther && (
                 <button
                   onClick={() =>
@@ -482,11 +550,26 @@ export default function MessagingView({ onOpenSecretChat }) {
                   const isMe = msg.sender?._id === user?._id || msg.sender === user?._id;
                   return (
                     <div key={msg._id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                      <div className={`max-w-[75%] sm:max-w-[60%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${isMe
-                          ? isDark ? 'bg-white text-slate-950 rounded-tr-sm' : 'bg-slate-900 text-white rounded-tr-sm'
+                      <div className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 text-sm leading-relaxed shadow-xs ${isMe
+                          ? isDark ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-slate-900 text-white rounded-tr-sm'
                           : isDark ? 'bg-white/[0.08] text-slate-100 rounded-tl-sm border border-white/10' : 'bg-slate-100 text-slate-800 rounded-tl-sm'
                         }`}>
-                        {msg.text}
+                        {/* Media attachment if present */}
+                        {msg.mediaUrl && (
+                          <div className="mb-2 rounded-xl overflow-hidden max-w-sm">
+                            {msg.mediaType === 'video' ? (
+                              <video src={msg.mediaUrl} controls className="max-h-60 rounded-xl w-full" />
+                            ) : (
+                              <img
+                                src={msg.mediaUrl}
+                                alt="Attachment"
+                                className="w-full h-auto object-cover max-h-64 rounded-xl hover:opacity-95 transition-opacity cursor-pointer"
+                                onClick={() => window.open(msg.mediaUrl, '_blank')}
+                              />
+                            )}
+                          </div>
+                        )}
+                        {msg.text && <p className="whitespace-pre-wrap break-words">{msg.text}</p>}
                       </div>
                       <div className="flex items-center gap-1 mt-0.5 px-1">
                         <span className="text-[10px] text-slate-400">{formatMessageTime(msg.createdAt)}</span>
@@ -515,11 +598,75 @@ export default function MessagingView({ onOpenSecretChat }) {
               <div ref={messagesEndRef} />
             </div>
 
+            {/* Media Preview before send */}
+            {filePreview && (
+              <div className={`px-4 pt-2.5 pb-1 flex items-center justify-between border-t ${cardBorder} ${isDark ? 'bg-white/[0.03]' : 'bg-slate-50'}`}>
+                <div className="flex items-center gap-2.5">
+                  <div className="relative">
+                    <img src={filePreview} alt="Selected file" className="w-14 h-14 object-cover rounded-xl border border-white/20 shadow-xs" />
+                    <button
+                      type="button"
+                      onClick={clearSelectedFile}
+                      className="absolute -top-1.5 -right-1.5 p-1 rounded-full bg-rose-500 hover:bg-rose-600 text-white shadow-xs"
+                      title="Remove attachment"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="text-xs text-slate-400 truncate max-w-[200px]">
+                    {selectedFile?.name}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Emoji Reaction bar */}
+            {showEmojiPicker && (
+              <div className={`px-4 py-2 border-t flex items-center gap-2 overflow-x-auto ${cardBorder} ${isDark ? 'bg-white/[0.03]' : 'bg-slate-50'}`}>
+                {['❤️', '🔥', '👍', '😂', '👏', '🎉', '😍', '🙌', '✨', '💯', '🚀', '😎'].map(emoji => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => handleEmojiSelect(emoji)}
+                    className="text-base p-1 hover:scale-125 transition-transform rounded-lg hover:bg-white/10"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Message Input */}
             <form
               onSubmit={handleSend}
               className={`p-3 flex items-center gap-2 border-t ${cardBorder} ${isDark ? 'bg-white/[0.02]' : 'bg-white'}`}
             >
+              {/* Hidden file input */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*,video/*"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className={`p-2.5 rounded-full transition-all text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}
+                title="Attach image or video"
+              >
+                <ImageIcon className="w-4 h-4 text-indigo-400" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowEmojiPicker(prev => !prev)}
+                className={`p-2.5 rounded-full transition-all text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'} ${showEmojiPicker ? 'text-amber-400' : ''}`}
+                title="Quick emojis"
+              >
+                <Smile className="w-4 h-4 text-amber-400" />
+              </button>
+
               <input
                 type="text"
                 placeholder={`Message ${activeOther?.name?.split(' ')[0] || ''}...`}
@@ -533,13 +680,13 @@ export default function MessagingView({ onOpenSecretChat }) {
               />
               <button
                 type="submit"
-                disabled={!messageInput.trim()}
-                className={`p-2.5 rounded-full transition-all ${messageInput.trim()
-                    ? isDark ? 'bg-white text-slate-900 hover:bg-slate-100 shadow-md' : 'bg-slate-900 text-white hover:bg-black shadow-md'
+                disabled={(!messageInput.trim() && !selectedFile) || sending}
+                className={`p-2.5 rounded-full transition-all ${(messageInput.trim() || selectedFile) && !sending
+                    ? isDark ? 'bg-white text-slate-900 hover:bg-slate-100 shadow-md cursor-pointer' : 'bg-slate-900 text-white hover:bg-black shadow-md cursor-pointer'
                     : 'opacity-40 cursor-not-allowed bg-slate-200 dark:bg-white/10 text-slate-400'
                   }`}
               >
-                <Send className="w-4 h-4" />
+                {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </button>
             </form>
           </>

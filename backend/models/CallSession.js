@@ -5,14 +5,12 @@ const callSessionSchema = new mongoose.Schema(
     caller: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
-      index: true
+      required: true
     },
     receiver: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
-      index: true
+      required: true
     },
     conversation: {
       type: mongoose.Schema.Types.ObjectId,
@@ -23,8 +21,7 @@ const callSessionSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      trim: true,
-      index: true
+      trim: true
     },
     callerUid: {
       type: Number,
@@ -47,8 +44,7 @@ const callSessionSchema = new mongoose.Schema(
         'busy',
         'failed'
       ],
-      default: 'initiated',
-      index: true
+      default: 'initiated'
     },
     startedAt: {
       type: Date,
@@ -82,10 +78,11 @@ const callSessionSchema = new mongoose.Schema(
   }
 );
 
-// Compound indexes for optimal querying
+// Compound indexes for optimal querying (user call history and active calls)
+callSessionSchema.index({ caller: 1, createdAt: -1 });
+callSessionSchema.index({ receiver: 1, createdAt: -1 });
 callSessionSchema.index({ caller: 1, status: 1 });
 callSessionSchema.index({ receiver: 1, status: 1 });
-callSessionSchema.index({ createdAt: -1 });
 
 const CallSession = mongoose.model('CallSession', callSessionSchema);
 

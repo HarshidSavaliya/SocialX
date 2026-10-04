@@ -302,28 +302,94 @@ npm run dev
 
 ---
 
-## 14. Automated Test Suites
+## 14. Multi-Computer & Cross-Device Setup Guide
 
-SocialX includes comprehensive, non-mocked test suites verifying database interactions, REST endpoints, and WebSocket signaling.
+SocialX is designed to run seamlessly across multiple computers and devices on the same local network (Wi-Fi/LAN) or over the internet without conflicts:
 
+### 1. Running the Backend for Network Access
+Start the backend server on the host machine:
 ```bash
 cd backend
-
-# Run Phase 2 Social Suite (Posts, Likes, Comments, Shares, Follows)
-node test_phase2.js
-
-# Run Phase 4 Security Suite (RBAC, Moderation, Ephemeral Secret Chat)
-node test_phase4.js
-
-# Run Phase 5 Video Call REST Suite (CallSession, Agora tokens, Busy checks)
-node test_phase5.js
-
-# Run Phase 5 Real-Time Socket Suite (Two concurrent users, signaling, media states)
-node test_phase5_socket.js
+npm run dev
 ```
+The server automatically configures dynamic CORS origins and binds to all interfaces on port `5000`.
+
+### 2. Running the Frontend for Multiple Computers
+Start the frontend development server:
+```bash
+cd frontend
+npm run dev
+```
+Vite automatically listens on `0.0.0.0` (`host: true`), displaying your local network IP (e.g., `http://192.168.1.15:5173`).
+
+### 3. Connecting from Other Computers or Mobile Devices
+- On any second computer or smartphone connected to the same Wi-Fi, open your browser and navigate to:
+  `http://<HOST_IP_ADDRESS>:5173` (e.g. `http://192.168.1.15:5173`)
+- The frontend dynamically routes all API requests and WebSocket signaling to the host machine.
+- Multiple users can log in simultaneously (e.g. User A as `@alexrivera`, User B as `@georgelobko`), chat in real-time, initiate video calls, and interact on posts without conflicts.
+
+### 4. MongoDB Atlas Multi-Computer Access
+To allow all computers to connect to MongoDB Atlas without individual IP restrictions:
+1. Go to [MongoDB Atlas](https://cloud.mongodb.com) ➔ **Network Access**.
+2. Click **Add IP Address** ➔ Select **Allow Access From Anywhere** (`0.0.0.0/0`).
+3. Save changes. All computers will now share the same cloud database!
+*(Note: If Atlas is temporarily unreachable, the backend automatically falls back to your local MongoDB instance without crashing).*
 
 ---
 
-## 15. License
+## 15. Stories Feature (Instagram-Style Ephemeral Content)
+
+SocialX includes a full-stack, production-grade Instagram-like Story feature:
+
+### Capabilities
+- **Multimedia Stories:** Upload images (JPEG, PNG, WEBP) and videos (MP4, WEBM, MOV) up to 30MB directly to Cloudinary.
+- **24-Hour Expiration:** Stories automatically expire after 24 hours (`expiresAt = createdAt + 24 hours`). All queries strictly filter active stories (`expiresAt > now`), backed by asynchronous MongoDB TTL index cleanup.
+- **Privacy Controls:** Choose between `public` (visible to followers and discoverable profiles) and `followers` (strictly restricted to authenticated followers).
+- **Two-Way Block Protection:** Automatically prevents blocked users from viewing, discovering, or interacting with stories.
+- **View Tracking & Viewer Lists:** View records are uniquely tracked per story using the `StoryView` model. Only the story author can inspect their story's viewer list.
+- **Full-Screen Responsive Viewer:** Features segmented multi-story progress bars, 5-second auto-advance for images, video-duration synchronization for videos, tap-to-navigate, keyboard shortcuts (`ArrowLeft`, `ArrowRight`, `Space`, `Escape`), and hold-to-pause.
+- **Feed & Profile Integration:** Story tray appears naturally at the top of the feed with vibrant unviewed rings and subtle viewed rings. Profile avatars display glowing story rings when active stories exist.
+
+### Database Models
+
+#### `Story`
+| Field | Type | Description |
+|---|---|---|
+| `_id` | ObjectId | Unique story identifier |
+| `user` | ObjectId (ref: User) | Story creator / author |
+| `mediaUrl` | String | Cloudinary secure delivery URL |
+| `mediaPublicId` | String | Cloudinary asset public ID for deletion |
+| `mediaType` | String (`image` \| `video`) | Media format |
+| `caption` | String (max 200 chars) | Sanitized story caption / text |
+| `privacy` | String (`public` \| `followers`) | Audience visibility |
+| `expiresAt` | Date | Expiration timestamp (created + 24h) |
+| `createdAt` | Date | Creation timestamp |
+| `updatedAt` | Date | Last update timestamp |
+
+#### `StoryView`
+| Field | Type | Description |
+|---|---|---|
+| `_id` | ObjectId | Unique view record identifier |
+| `story` | ObjectId (ref: Story) | Story reference |
+| `viewer` | ObjectId (ref: User) | Authenticated viewer reference |
+| `viewedAt` | Date | Timestamp when story was viewed |
+
+*Compound Unique Index:* `{ story: 1, viewer: 1 }` prevents duplicate view records.
+
+### Stories REST API Endpoints
+
+| Method | Endpoint | Auth Required | Description |
+|---|---|---|---|
+| `POST` | `/api/stories` | Yes | Upload image/video story with caption & privacy |
+| `GET` | `/api/stories/feed` | Yes | Get active stories feed grouped by user |
+| `GET` | `/api/stories/user/:userId` | Optional | Get active stories for a specific user profile |
+| `GET` | `/api/stories/:storyId` | Optional | Get single active story by ID |
+| `POST` | `/api/stories/:storyId/view` | Yes | Record a view for an active story |
+| `DELETE` | `/api/stories/:storyId` | Yes | Delete story & Cloudinary asset (owner/admin) |
+| `GET` | `/api/stories/:storyId/viewers` | Yes | Get viewer list with timestamps (author only) |
+
+---
+
+## 16. License
 
 This project is licensed under the ISC License.

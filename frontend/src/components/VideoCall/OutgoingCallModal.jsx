@@ -1,6 +1,7 @@
 import React from 'react';
-import { PhoneOff, Video, AlertCircle } from 'lucide-react';
+import { Phone, PhoneOff, Video, AlertCircle } from 'lucide-react';
 import { useVideoCall } from '../../context/VideoCallContext';
+import { getUserAvatar, handleImageError } from '../../utils/avatar';
 
 export default function OutgoingCallModal() {
   const { callStatus, outgoingCall, agoraNotice, endCall } = useVideoCall();
@@ -10,22 +11,29 @@ export default function OutgoingCallModal() {
   }
 
   const receiver = outgoingCall?.receiver || {};
+  const isAudio = outgoingCall?.callType === 'audio';
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-200">
       <div className="relative w-full max-w-sm rounded-3xl bg-[#12141c] border border-white/10 p-6 sm:p-8 text-center shadow-2xl overflow-hidden">
         {/* Ambient background glow */}
-        <div className="absolute -top-16 -left-16 w-44 h-44 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
+        <div className={`absolute -top-16 -left-16 w-44 h-44 ${isAudio ? 'bg-emerald-500/20' : 'bg-indigo-500/20'} rounded-full blur-3xl pointer-events-none`} />
         <div className="absolute -bottom-16 -right-16 w-44 h-44 bg-rose-500/15 rounded-full blur-3xl pointer-events-none" />
 
         {/* Call Type Pill */}
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-white/80 text-xs font-semibold mb-6">
-          <Video className="w-3.5 h-3.5 text-indigo-400" />
+          {isAudio ? (
+            <Phone className="w-3.5 h-3.5 text-emerald-400" />
+          ) : (
+            <Video className="w-3.5 h-3.5 text-indigo-400" />
+          )}
           <span>
             {callStatus === 'busy'
               ? 'User Busy'
               : callStatus === 'missed'
               ? 'No Answer'
+              : isAudio
+              ? 'Voice Calling...'
               : 'Video Calling...'}
           </span>
         </div>
@@ -34,13 +42,14 @@ export default function OutgoingCallModal() {
         <div className="relative mx-auto mb-5 w-24 h-24">
           {callStatus === 'outgoing' && (
             <>
-              <div className="absolute inset-0 rounded-full bg-indigo-500/20 animate-ping [animation-duration:2.5s]" />
-              <div className="absolute -inset-2 rounded-full border border-indigo-400/30 animate-pulse" />
+              <div className={`absolute inset-0 rounded-full ${isAudio ? 'bg-emerald-500/20' : 'bg-indigo-500/20'} animate-ping [animation-duration:2.5s]`} />
+              <div className={`absolute -inset-2 rounded-full border ${isAudio ? 'border-emerald-400/30' : 'border-indigo-400/30'} animate-pulse`} />
             </>
           )}
           <img
-            src={receiver.profileImage || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80'}
+            src={getUserAvatar(receiver)}
             alt={receiver.name || 'Recipient'}
+            onError={(e) => handleImageError(e, receiver.name)}
             className="relative w-full h-full rounded-full object-cover shadow-xl border-2 border-white/20"
           />
         </div>
@@ -72,7 +81,7 @@ export default function OutgoingCallModal() {
         <div className="flex flex-col items-center gap-2">
           <button
             onClick={() => endCall('cancelled')}
-            aria-label="Cancel Video Call"
+            aria-label="Cancel Call"
             className="w-14 h-14 rounded-full bg-rose-600 hover:bg-rose-700 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-rose-600/30 transition-all cursor-pointer"
           >
             <PhoneOff className="w-6 h-6" />

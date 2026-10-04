@@ -3,6 +3,7 @@ import { Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { formatRelativeTime } from '../utils/dateTime';
+import { getUserAvatar, handleImageError } from '../utils/avatar';
 
 export default function CommentItem({ comment, postOwnerId, onDelete }) {
   const { user } = useAuth();
@@ -29,14 +30,13 @@ export default function CommentItem({ comment, postOwnerId, onDelete }) {
 
   const authorName = comment.author?.name || 'User';
   const authorUsername = comment.author?.username ? `@${comment.author.username}` : '';
-  const authorAvatar =
-    comment.author?.profileImage ||
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80';
+  const authorAvatar = getUserAvatar(comment.author);
 
   return (
     <div className="flex gap-2.5 items-start text-xs group/comment">
       <img
         src={authorAvatar}
+        onError={(e) => handleImageError(e, authorName)}
         alt={authorName}
         className="w-7 h-7 rounded-full object-cover mt-0.5 flex-shrink-0 ring-1 ring-slate-200 dark:ring-white/10"
       />

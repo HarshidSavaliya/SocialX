@@ -108,14 +108,14 @@ class VideoCallService {
       await notificationService.createNotification({
         recipient: receiverId,
         sender: callerId,
-        type: 'VIDEO_CALL',
-        title: 'Incoming Video Call',
-        message: `${caller.name} (@${caller.username}) is video calling you...`,
+        type: callType === 'audio' ? 'AUDIO_CALL' : 'VIDEO_CALL',
+        title: callType === 'audio' ? 'Incoming Voice Call' : 'Incoming Video Call',
+        message: `${caller.name} (@${caller.username}) is ${callType === 'audio' ? 'voice' : 'video'} calling you...`,
         relatedConversation: conversationId,
         relatedUser: callerId
       });
     } catch (notifErr) {
-      console.warn('Video call notification error:', notifErr.message);
+      console.warn('Call notification error:', notifErr.message);
     }
 
     // 9. Emit Socket.IO invitation to receiver
@@ -209,11 +209,13 @@ class VideoCallService {
       callSessionId: session._id,
       channelName: session.channelName,
       receiverUid: session.receiverUid,
-      answeredAt: session.answeredAt
+      answeredAt: session.answeredAt,
+      callType: session.callType
     });
 
     return {
       callSession: session,
+      callType: session.callType,
       agora: {
         appId: agoraData.appId,
         channelName: session.channelName,
@@ -427,7 +429,8 @@ class VideoCallService {
         .limit(Number(limit))
         .populate('caller', 'name username profileImage')
         .populate('receiver', 'name username profileImage')
-        .populate('endedBy', 'name username'),
+        .populate('endedBy', 'name username')
+        .lean(),
       CallSession.countDocuments(query)
     ]);
 

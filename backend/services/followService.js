@@ -10,22 +10,9 @@ class FollowService {
       throw error;
     }
 
-    const targetUser = await User.findById(targetUserId);
+    const targetUser = await User.findById(targetUserId).select('followersCount');
     if (!targetUser) {
       throw new Error('User not found');
-    }
-
-    const existingFollow = await Follow.findOne({
-      follower: followerId,
-      following: targetUserId
-    });
-
-    if (existingFollow) {
-      return {
-        following: true,
-        message: 'Already following this user',
-        followersCount: targetUser.followersCount
-      };
     }
 
     try {
@@ -34,13 +21,15 @@ class FollowService {
         following: targetUserId
       });
 
-      // Update counters atomically
-      await Promise.all([
+      // Update counters atomically and get updated target user in a single batch
+      const [, updatedTarget] = await Promise.all([
         User.findByIdAndUpdate(followerId, { $inc: { followingCount: 1 } }),
-        User.findByIdAndUpdate(targetUserId, { $inc: { followersCount: 1 } })
+        User.findByIdAndUpdate(
+          targetUserId,
+          { $inc: { followersCount: 1 } },
+          { new: true }
+        ).select('followersCount')
       ]);
-
-      const updatedTarget = await User.findById(targetUserId);
 
       // Trigger follow notification
       const follower = await User.findById(followerId).select('name username');
@@ -56,7 +45,7 @@ class FollowService {
       return {
         following: true,
         message: 'User followed successfully',
-        followersCount: updatedTarget.followersCount
+        followersCount: updatedTarget ? updatedTarget.followersCount : targetUser.followersCount + 1
       };
     } catch (err) {
       if (err.code === 11000) {
@@ -77,17 +66,16 @@ class FollowService {
       throw error;
     }
 
-    const targetUser = await User.findById(targetUserId);
-    if (!targetUser) {
-      throw new Error('User not found');
-    }
-
     const deletedFollow = await Follow.findOneAndDelete({
       follower: followerId,
       following: targetUserId
     });
 
     if (!deletedFollow) {
+      const targetUser = await User.findById(targetUserId).select('followersCount');
+      if (!targetUser) {
+        throw new Error('User not found');
+      }
       return {
         following: false,
         message: 'You are not following this user',
@@ -95,8 +83,8 @@ class FollowService {
       };
     }
 
-    // Decrement counters atomically
-    await Promise.all([
+    // Decrement counters atomically and retrieve updated count without extra query
+    const [, updatedTarget] = await Promise.all([
       User.findByIdAndUpdate(followerId, [
         {
           $set: {
@@ -106,35 +94,38 @@ class FollowService {
           }
         }
       ]),
-      User.findByIdAndUpdate(targetUserId, [
-        {
-          $set: {
-            followersCount: {
-              $max: [0, { $subtract: ['$followersCount', 1] }]
+      User.findByIdAndUpdate(
+        targetUserId,
+        [
+          {
+            $set: {
+              followersCount: {
+                $max: [0, { $subtract: ['$followersCount', 1] }]
+              }
             }
           }
-        }
-      ])
+        ],
+        { new: true }
+      ).select('followersCount')
     ]);
-
-    const updatedTarget = await User.findById(targetUserId);
 
     return {
       following: false,
       message: 'User unfollowed successfully',
-      followersCount: updatedTarget.followersCount
+      followersCount: updatedTarget ? updatedTarget.followersCount : 0
     };
   }
 
   async getFollowers(targetUserId, currentUserId = null) {
-    const targetUser = await User.findById(targetUserId);
+    const targetUser = await User.findById(targetUserId).select('_id').lean();
     if (!targetUser) {
       throw new Error('User not found');
     }
 
     const followDocs = await Follow.find({ following: targetUserId })
       .populate('follower', 'name username profileImage bio followersCount')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     const followerUsers = followDocs
       .filter(doc => doc.follower != null)
@@ -147,7 +138,7 @@ class FollowService {
       const myFollows = await Follow.find({
         follower: currentUserId,
         following: { $in: userIds }
-      }).select('following');
+      }).select('following').lean();
 
       followedByCurrentUser = new Set(myFollows.map(f => f.following.toString()));
     }
@@ -165,14 +156,15 @@ class FollowService {
   }
 
   async getFollowing(targetUserId, currentUserId = null) {
-    const targetUser = await User.findById(targetUserId);
+    const targetUser = await User.findById(targetUserId).select('_id').lean();
     if (!targetUser) {
       throw new Error('User not found');
     }
 
     const followDocs = await Follow.find({ follower: targetUserId })
       .populate('following', 'name username profileImage bio followersCount')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     const followingUsers = followDocs
       .filter(doc => doc.following != null)
@@ -184,7 +176,7 @@ class FollowService {
       const myFollows = await Follow.find({
         follower: currentUserId,
         following: { $in: userIds }
-      }).select('following');
+      }).select('following').lean();
 
       followedByCurrentUser = new Set(myFollows.map(f => f.following.toString()));
     }

@@ -8,6 +8,10 @@ export default defineConfig({
     react(),
     tailwindcss()
   ],
+  server: {
+    host: true, // Listen on all local IP addresses (0.0.0.0) so other computers on the LAN can connect
+    port: 5173
+  },
   build: {
     chunkSizeWarningLimit: 2500,
     rollupOptions: {

@@ -13,6 +13,7 @@ import PostCard from './components/PostCard';
 import LoadingSkeleton from './components/LoadingSkeleton';
 import EmptyState from './components/EmptyState';
 import AuthModal from './components/AuthModal';
+import StoriesBar from './components/StoriesBar';
 import BottomMobileNav from './components/BottomMobileNav';
 import VideoCallManager from './components/VideoCall/VideoCallManager';
 
@@ -157,20 +158,20 @@ function SocialXMain() {
 
   return (
     <div
-      className={`min-h-screen transition-colors duration-500 font-sans relative overflow-x-hidden ${isDark ? 'bg-[#0a0c12] text-slate-100' : 'bg-[#edf1f8] text-slate-900'
+      className={`min-h-screen transition-colors duration-500 font-sans relative overflow-x-hidden ${isDark ? 'bg-[#0c0a0f] text-stone-100' : 'bg-[#f7f5f2] text-stone-900'
         }`}
     >
       {/* Ambient Atmospheric Backdrop */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         {isDark ? (
           <>
-            <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-b from-amber-500/8 via-rose-500/4 to-transparent rounded-full blur-[140px] transform translate-x-1/3 -translate-y-1/3" />
-            <div className="absolute bottom-10 left-10 w-[500px] h-[500px] bg-indigo-600/6 rounded-full blur-[120px]" />
+            <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-b from-amber-500/10 via-orange-500/5 to-transparent rounded-full blur-[140px] transform translate-x-1/3 -translate-y-1/3" />
+            <div className="absolute bottom-10 left-10 w-[500px] h-[500px] bg-amber-600/6 rounded-full blur-[130px]" />
           </>
         ) : (
           <>
-            <div className="absolute top-0 right-1/4 w-[700px] h-[500px] bg-gradient-to-b from-indigo-100/60 via-purple-100/40 to-transparent rounded-full blur-[100px]" />
-            <div className="absolute bottom-0 left-10 w-[600px] h-[400px] bg-slate-200/50 rounded-full blur-[90px]" />
+            <div className="absolute top-0 right-1/4 w-[700px] h-[500px] bg-gradient-to-b from-amber-100/40 via-orange-50/30 to-transparent rounded-full blur-[100px]" />
+            <div className="absolute bottom-0 left-10 w-[600px] h-[400px] bg-stone-200/50 rounded-full blur-[90px]" />
           </>
         )}
       </div>
@@ -256,20 +257,26 @@ function SocialXMain() {
           ) : (
             <>
               {/* Center Main Stage */}
-              <div className="flex-1 w-full max-w-2xl mx-auto space-y-6">
+              <div className="flex-1 w-full max-w-2xl mx-auto space-y-5">
                 {/* VIEW A: FEED */}
                 {activeView === 'feed' && (
                   <>
+                    {/* Top Stories Row (Matching Reference Design) */}
+                    <StoriesBar
+                      onOpenAuth={() => setShowAuthModal(true)}
+                      onNavigateToProfile={handleNavigateToProfile}
+                    />
+
                     {/* Feed Header with Sub-tabs & Hashtag filter */}
                     <div
-                      className={`p-4 rounded-3xl flex flex-wrap items-center justify-between gap-3 border ${isDark
-                          ? 'bg-white/[0.03] border-white/[0.08]'
-                          : 'bg-white border-slate-200/80 shadow-xs'
+                      className={`p-4 rounded-3xl flex flex-wrap items-center justify-between gap-3 border transition-all ${isDark
+                          ? 'bg-[#15131a]/90 backdrop-blur-xl border-white/[0.08] shadow-lg shadow-black/30'
+                          : 'bg-white border-stone-200/80 shadow-xs'
                         }`}
                     >
                       <div>
-                        <h1 className="text-lg font-black tracking-tight">SocialX Feed</h1>
-                        <p className="text-[11px] text-slate-400">
+                        <h1 className="text-lg font-black tracking-tight text-stone-900 dark:text-white">SocialX Feed</h1>
+                        <p className="text-[11px] text-stone-400">
                           {feedFilter === 'friends'
                             ? 'Posts from creators you follow'
                             : 'Connected global social stream'}
@@ -277,14 +284,14 @@ function SocialXMain() {
                       </div>
 
                       {/* Sub-tabs pills */}
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 p-1 rounded-full bg-stone-100 dark:bg-white/[0.04]">
                         <button
                           onClick={() => setFeedFilter('all')}
-                          className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${feedFilter === 'all'
+                          className={`px-3.5 py-1.5 rounded-full text-xs font-black transition-all ${feedFilter === 'all'
                               ? isDark
-                                ? 'bg-white text-slate-950'
-                                : 'bg-slate-900 text-white'
-                              : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                                ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-stone-950 shadow-sm shadow-amber-500/20'
+                                : 'bg-stone-900 text-white shadow-xs'
+                              : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200'
                             }`}
                         >
                           All Posts
@@ -294,11 +301,11 @@ function SocialXMain() {
                             if (!isAuthenticated) setShowAuthModal(true);
                             else setFeedFilter('friends');
                           }}
-                          className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${feedFilter === 'friends'
+                          className={`px-3.5 py-1.5 rounded-full text-xs font-black transition-all ${feedFilter === 'friends'
                               ? isDark
-                                ? 'bg-white text-slate-950'
-                                : 'bg-slate-900 text-white'
-                              : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                                ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-stone-950 shadow-sm shadow-amber-500/20'
+                                : 'bg-stone-900 text-white shadow-xs'
+                              : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200'
                             }`}
                         >
                           Following Only
@@ -308,14 +315,14 @@ function SocialXMain() {
 
                     {/* Active Hashtag Filter Chip */}
                     {activeHashtag && (
-                      <div className="flex items-center justify-between px-4 py-2 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-400 font-semibold">
+                      <div className="flex items-center justify-between px-4 py-2 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400 font-semibold">
                         <div className="flex items-center gap-1.5">
-                          <Hash className="w-3.5 h-3.5" />
+                          <Hash className="w-3.5 h-3.5 text-amber-400" />
                           <span>Filtering by {activeHashtag}</span>
                         </div>
                         <button
                           onClick={() => setActiveHashtag(null)}
-                          className="hover:text-indigo-200 flex items-center gap-1 text-[11px]"
+                          className="hover:text-amber-200 flex items-center gap-1 text-[11px]"
                         >
                           <span>Clear filter</span>
                           <X className="w-3.5 h-3.5" />

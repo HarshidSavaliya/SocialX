@@ -5,8 +5,7 @@ const messageSchema = new mongoose.Schema(
     conversation: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Conversation',
-      required: true,
-      index: true
+      required: true
     },
     sender: {
       type: mongoose.Schema.Types.ObjectId,
@@ -50,6 +49,7 @@ const messageSchema = new mongoose.Schema(
 );
 
 messageSchema.index({ conversation: 1, createdAt: 1 });
+messageSchema.index({ conversation: 1, createdAt: -1 });
 messageSchema.index({ receiver: 1, isRead: 1 });
 
 const Message = mongoose.model('Message', messageSchema);

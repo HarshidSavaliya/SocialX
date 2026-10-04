@@ -29,9 +29,8 @@ const conversationSchema = new mongoose.Schema(
   }
 );
 
-// Index to quickly find user conversations and order by most recent message
-conversationSchema.index({ participants: 1 });
-conversationSchema.index({ lastMessageAt: -1 });
+// Compound index to quickly find user conversations ordered by most recent message
+conversationSchema.index({ participants: 1, lastMessageAt: -1 });
 
 const Conversation = mongoose.model('Conversation', conversationSchema);
 

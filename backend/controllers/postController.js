@@ -96,6 +96,7 @@ export const getFeed = async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: result.posts,
+      posts: result.posts,
       pagination: result.pagination
     });
   } catch (error) {
@@ -119,6 +120,7 @@ export const getUserPosts = async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: result.posts,
+      posts: result.posts,
       pagination: result.pagination
     });
   } catch (error) {

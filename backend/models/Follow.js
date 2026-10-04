@@ -20,8 +20,8 @@ const followSchema = new mongoose.Schema(
 
 // Compound unique index prevents following the same user twice
 followSchema.index({ follower: 1, following: 1 }, { unique: true });
-followSchema.index({ following: 1 });
-followSchema.index({ follower: 1 });
+followSchema.index({ following: 1, createdAt: -1 });
+followSchema.index({ follower: 1, createdAt: -1 });
 
 const Follow = mongoose.model('Follow', followSchema);
 export default Follow;

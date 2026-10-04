@@ -12,7 +12,7 @@ class CommentService {
       throw new Error('Comment cannot exceed 1000 characters');
     }
 
-    const post = await Post.findById(postId);
+    const post = await Post.findById(postId).select('author');
     if (!post) {
       throw new Error('Post not found');
     }
@@ -46,12 +46,12 @@ class CommentService {
   }
 
   async deleteComment({ commentId, userId }) {
-    const comment = await Comment.findById(commentId);
+    const comment = await Comment.findById(commentId).select('author post');
     if (!comment) {
       throw new Error('Comment not found');
     }
 
-    const post = await Post.findById(comment.post);
+    const post = await Post.findById(comment.post).select('author');
     if (!post) {
       throw new Error('Post not found');
     }
@@ -85,7 +85,8 @@ class CommentService {
   async getCommentsByPost(postId) {
     const comments = await Comment.find({ post: postId })
       .sort({ createdAt: 1 })
-      .populate('author', 'name username profileImage');
+      .populate('author', 'name username profileImage')
+      .lean();
 
     return comments;
   }

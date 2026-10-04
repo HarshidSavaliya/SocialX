@@ -2,11 +2,20 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
+export const getSocketUrl = () => {
+  if (import.meta.env.VITE_SOCKET_URL) {
+    return import.meta.env.VITE_SOCKET_URL;
+  }
+  const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+  return `http://${host}:5000`;
+};
+
 const SocketContext = createContext(null);
 
 export function SocketProvider({ children }) {
   const { token, isAuthenticated } = useAuth();
   const socketRef = useRef(null);
+  const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
 
@@ -15,45 +24,76 @@ export function SocketProvider({ children }) {
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
+        setSocket(null);
         setIsConnected(false);
         setOnlineUsers([]);
       }
       return;
     }
 
-    if (socketRef.current) return; // Already connected
-
-    socketRef.current = io('http://localhost:5000', {
+    // Connect to dynamic host URL
+    const targetUrl = getSocketUrl();
+    const newSocket = io(targetUrl, {
       auth: { token },
       autoConnect: true,
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      transports: ['websocket', 'polling']
     });
 
-    const socket = socketRef.current;
+    socketRef.current = newSocket;
+    setSocket(newSocket);
 
-    socket.on('connect', () => setIsConnected(true));
-    socket.on('disconnect', () => setIsConnected(false));
-    socket.on('presence:online-users', (userIds) => setOnlineUsers(userIds));
-    socket.on('user:online', ({ userId }) =>
-      setOnlineUsers(prev => [...new Set([...prev, userId])])
-    );
-    socket.on('user:offline', ({ userId }) =>
-      setOnlineUsers(prev => prev.filter(id => id !== userId))
-    );
+    const handleConnect = () => {
+      setIsConnected(true);
+    };
+
+    const handleDisconnect = () => {
+      setIsConnected(false);
+    };
+
+    const handleConnectError = (err) => {
+      console.warn('[Socket] Connection notice:', err.message);
+      setIsConnected(false);
+    };
+
+    const handleOnlineUsers = (userIds) => {
+      setOnlineUsers(userIds || []);
+    };
+
+    const handleUserOnline = ({ userId }) => {
+      if (!userId) return;
+      setOnlineUsers((prev) => [...new Set([...prev, userId])]);
+    };
+
+    const handleUserOffline = ({ userId }) => {
+      if (!userId) return;
+      setOnlineUsers((prev) => prev.filter((id) => id !== userId));
+    };
+
+    newSocket.on('connect', handleConnect);
+    newSocket.on('disconnect', handleDisconnect);
+    newSocket.on('connect_error', handleConnectError);
+    newSocket.on('presence:online-users', handleOnlineUsers);
+    newSocket.on('user:online', handleUserOnline);
+    newSocket.on('user:offline', handleUserOffline);
 
     return () => {
-      socket.off('connect');
-      socket.off('disconnect');
-      socket.off('presence:online-users');
-      socket.off('user:online');
-      socket.off('user:offline');
+      newSocket.off('connect', handleConnect);
+      newSocket.off('disconnect', handleDisconnect);
+      newSocket.off('connect_error', handleConnectError);
+      newSocket.off('presence:online-users', handleOnlineUsers);
+      newSocket.off('user:online', handleUserOnline);
+      newSocket.off('user:offline', handleUserOffline);
+      newSocket.disconnect();
+      socketRef.current = null;
+      setSocket(null);
     };
   }, [isAuthenticated, token]);
 
   const value = {
-    socket: socketRef.current,
+    socket,
     isConnected,
     onlineUsers
   };
@@ -62,5 +102,6 @@ export function SocketProvider({ children }) {
 }
 
 export function useSocket() {
-  return useContext(SocketContext);
+  const context = useContext(SocketContext);
+  return context || { socket: null, isConnected: false, onlineUsers: [] };
 }

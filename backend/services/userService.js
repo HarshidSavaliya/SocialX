@@ -27,17 +27,22 @@ class UserService {
 
     return {
       id: user._id,
+      _id: user._id,
       name: user.name,
       username: user.username,
       email: isSelf ? user.email : undefined,
+      title: user.title || '',
       bio: user.bio,
-      profileImage: user.profileImage,
+      avatar: user.avatar || user.profileImage,
+      profileImage: user.profileImage || user.avatar,
       coverImage: user.coverImage,
       location: user.location,
       website: user.website,
       followersCount: user.followersCount,
       followingCount: user.followingCount,
       postsCount: user.postsCount,
+      role: user.role,
+      accountStatus: user.accountStatus,
       createdAt: user.createdAt,
       isFollowing,
       isSelf
@@ -99,11 +104,13 @@ class UserService {
     );
 
     user.profileImage = uploadResult.url;
+    user.avatar = uploadResult.url;
     user.profileImagePublicId = uploadResult.publicId;
     await user.save();
 
     return {
-      profileImage: user.profileImage
+      profileImage: user.profileImage,
+      avatar: user.avatar
     };
   }
 

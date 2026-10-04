@@ -45,7 +45,15 @@ const userSchema = new mongoose.Schema(
     },
     profileImage: {
       type: String,
-      default: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80'
+      default: function() {
+        return `https://ui-avatars.com/api/?name=${encodeURIComponent(this.name || 'User')}&background=4f46e5&color=fff&bold=true`;
+      }
+    },
+    avatar: {
+      type: String,
+      default: function() {
+        return this.profileImage || `https://ui-avatars.com/api/?name=${encodeURIComponent(this.name || 'User')}&background=4f46e5&color=fff&bold=true`;
+      }
     },
     profileImagePublicId: {
       type: String,
@@ -88,15 +96,30 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ['ACTIVE', 'BLOCKED'],
       default: 'ACTIVE'
-    }
+    },
+    blockedUsers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      }
+    ]
   },
   {
     timestamps: true
   }
 );
 
+userSchema.index({ blockedUsers: 1 });
+userSchema.index({ accountStatus: 1 });
+
 // Hash password before saving
 userSchema.pre('save', async function () {
+  if (!this.profileImage || this.profileImage.trim() === '') {
+    this.profileImage = `https://ui-avatars.com/api/?name=${encodeURIComponent(this.name || 'User')}&background=4f46e5&color=fff&bold=true`;
+  }
+  if (!this.avatar || this.avatar.trim() === '') {
+    this.avatar = this.profileImage;
+  }
   if (!this.isModified('password')) {
     return;
   }

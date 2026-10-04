@@ -6,7 +6,9 @@ import {
   Share2,
   Edit3,
   Trash2,
-  ShieldCheck
+  ShieldCheck,
+  Bookmark,
+  Sparkles
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -16,6 +18,7 @@ import CommentSection from './CommentSection';
 import EditPostModal from './EditPostModal';
 import ConfirmDialog from './ConfirmDialog';
 import { formatRelativeTime } from '../utils/dateTime';
+import { getUserAvatar, handleImageError } from '../utils/avatar';
 
 export default function PostCard({
   post,
@@ -34,6 +37,8 @@ export default function PostCard({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarkCount, setBookmarkCount] = useState(() => Math.floor(Math.random() * 30) + 8);
 
   const postId = post._id || post.id;
   const authorId = post.author?._id || post.author?.id;
@@ -65,16 +70,14 @@ export default function PostCard({
 
   const authorName = post.author?.name || 'SocialX Creator';
   const authorUsername = post.author?.username ? `@${post.author.username}` : '';
-  const authorAvatar =
-    post.author?.profileImage ||
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80';
+  const authorAvatar = getUserAvatar(post.author);
 
   return (
     <article
       id={`post-${postId}`}
       className={`rounded-3xl transition-all duration-300 relative border group/card ${isDark
-          ? 'bg-white/[0.04] border-white/[0.08] shadow-lg shadow-black/20 hover:border-white/[0.14]'
-          : 'bg-white border-slate-200/80 shadow-xs hover:border-slate-300/80'
+          ? 'bg-[#15131a]/90 backdrop-blur-xl border-white/[0.08] shadow-xl shadow-black/40 hover:border-amber-500/30'
+          : 'bg-white border-stone-200/80 shadow-xs hover:border-stone-300/80'
         }`}
     >
       {/* Post Top Header */}
@@ -85,19 +88,20 @@ export default function PostCard({
         >
           <img
             src={authorAvatar}
+            onError={(e) => handleImageError(e, authorName)}
             alt={authorName}
-            className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover ring-2 ring-indigo-500/20 group-hover/author:ring-indigo-500 transition-all flex-shrink-0"
+            className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover ring-2 ring-amber-500/30 group-hover/author:ring-amber-400 transition-all flex-shrink-0"
           />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <h4 className={`text-xs sm:text-sm font-bold truncate transition-colors ${isDark ? 'text-white group-hover/author:text-indigo-400' : 'text-slate-900 group-hover/author:text-indigo-600'
+              <h4 className={`text-xs sm:text-sm font-extrabold truncate transition-colors ${isDark ? 'text-white group-hover/author:text-amber-400' : 'text-stone-900 group-hover/author:text-amber-600'
                 }`}>
                 {authorName}
               </h4>
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+              <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400/20 flex-shrink-0" />
             </div>
 
-            <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+            <div className="flex items-center gap-2 text-[11px] text-stone-400 mt-0.5">
               <span>{authorUsername}</span>
               <span>•</span>
               <span>{formatRelativeTime(post.createdAt)}</span>
@@ -109,7 +113,7 @@ export default function PostCard({
         <div className="relative">
           <button
             onClick={() => setShowMoreMenu(!showMoreMenu)}
-            className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+            className="p-1.5 rounded-full text-stone-400 hover:text-white hover:bg-white/10 transition-colors"
             title="More options"
           >
             <MoreHorizontal className="w-4 h-4" />
@@ -178,9 +182,9 @@ export default function PostCard({
               <button
                 key={idx}
                 onClick={() => onHashtagClick && onHashtagClick(tag)}
-                className={`text-xs font-semibold px-2 py-0.5 rounded-full transition-all ${isDark
-                    ? 'bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 border border-indigo-500/20'
-                    : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-100'
+                className={`text-xs font-bold px-2.5 py-0.5 rounded-full transition-all ${isDark
+                    ? 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/25'
+                    : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200'
                   }`}
               >
                 {tag.startsWith('#') ? tag : `#${tag}`}
@@ -193,26 +197,26 @@ export default function PostCard({
       {/* Media Presentation (Images & Videos from Cloudinary / Local) */}
       {post.mediaUrl && (
         <div className="px-4 sm:px-5 py-1">
-          <div className="rounded-2xl overflow-hidden max-h-[460px] bg-black/10 dark:bg-black/30 border border-slate-200/60 dark:border-white/10 group/media">
+          <div className="rounded-2xl sm:rounded-3xl overflow-hidden max-h-[480px] bg-black/30 border border-white/10 group/media shadow-md">
             {post.mediaType === 'video' ? (
               <video
                 src={post.mediaUrl}
                 controls
-                className="w-full max-h-[460px] object-contain rounded-2xl"
+                className="w-full max-h-[480px] object-contain rounded-2xl sm:rounded-3xl"
               />
             ) : (
               <img
                 src={post.mediaUrl}
                 alt="Post Media"
-                className="w-full max-h-[460px] object-cover rounded-2xl transition-transform duration-500 group-hover/media:scale-101"
+                className="w-full max-h-[480px] object-cover rounded-2xl sm:rounded-3xl transition-transform duration-500 group-hover/media:scale-101"
               />
             )}
           </div>
         </div>
       )}
 
-      {/* Action Footer: Like, Comment, Share, Views */}
-      <div className="px-4 sm:px-5 py-3 mt-1 flex items-center border-t border-slate-100 dark:border-white/[0.06]">
+      {/* Action Footer: Like, Comment, Bookmark, Share */}
+      <div className="px-4 sm:px-5 py-3 mt-1 flex items-center justify-between border-t border-slate-100 dark:border-white/[0.06]">
         <div className="flex items-center gap-4 sm:gap-6">
           {/* Like Button */}
           <LikeButton
@@ -230,10 +234,10 @@ export default function PostCard({
           <button
             onClick={() => setShowComments(!showComments)}
             className={`flex items-center gap-1.5 text-xs font-semibold transition-all duration-150 select-none ${showComments
-                ? 'text-indigo-500'
+                ? 'text-amber-400 font-bold'
                 : isDark
-                  ? 'text-slate-400 hover:text-white'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'text-stone-400 hover:text-white'
+                  : 'text-stone-600 hover:text-stone-900'
               }`}
             title="Comments"
           >
@@ -241,7 +245,40 @@ export default function PostCard({
             <span>{commentsCount}</span>
           </button>
 
+          {/* Bookmark Button (Matches reference image) */}
+          <button
+            onClick={() => {
+              setIsBookmarked(!isBookmarked);
+              setBookmarkCount((prev) => (isBookmarked ? prev - 1 : prev + 1));
+            }}
+            className={`flex items-center gap-1.5 text-xs font-semibold transition-all duration-150 select-none ${isBookmarked
+                ? 'text-amber-400 font-bold'
+                : isDark
+                  ? 'text-stone-400 hover:text-white'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            title={isBookmarked ? 'Saved to bookmarks' : 'Bookmark post'}
+          >
+            <Bookmark className={`w-4 h-4 transition-transform ${isBookmarked ? 'fill-amber-400 text-amber-400 scale-110' : ''}`} />
+            <span>{bookmarkCount}</span>
+          </button>
         </div>
+
+        {/* Share Button */}
+        <button
+          onClick={handleCopyLink}
+          className={`flex items-center gap-1.5 text-xs font-semibold transition-all select-none ${
+            copiedLink
+              ? 'text-emerald-400 font-bold'
+              : isDark
+              ? 'text-stone-400 hover:text-white'
+              : 'text-stone-600 hover:text-stone-900'
+          }`}
+          title="Share post link"
+        >
+          {copiedLink ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4" />}
+          <span className="hidden sm:inline">{copiedLink ? 'Copied' : 'Share'}</span>
+        </button>
       </div>
 
       {/* Expandable Comments Section */}

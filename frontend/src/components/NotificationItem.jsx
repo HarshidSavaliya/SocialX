@@ -1,7 +1,8 @@
 import React from 'react';
-import { Heart, MessageSquare, UserPlus, MessageCircle, Video } from 'lucide-react';
+import { Heart, MessageSquare, UserPlus, MessageCircle, Video, Phone } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { formatRelativeTime } from '../utils/dateTime';
+import { getUserAvatar, handleImageError } from '../utils/avatar';
 
 const ICONS = {
   LIKE: { icon: Heart, color: 'text-rose-500', bg: 'bg-rose-500/10' },
@@ -9,7 +10,9 @@ const ICONS = {
   FOLLOW: { icon: UserPlus, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
   MESSAGE: { icon: MessageCircle, color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
   VIDEO_CALL: { icon: Video, color: 'text-purple-500', bg: 'bg-purple-500/10' },
-  MISSED_VIDEO_CALL: { icon: Video, color: 'text-rose-500', bg: 'bg-rose-500/10' }
+  MISSED_VIDEO_CALL: { icon: Video, color: 'text-rose-500', bg: 'bg-rose-500/10' },
+  AUDIO_CALL: { icon: Phone, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+  MISSED_AUDIO_CALL: { icon: Phone, color: 'text-rose-500', bg: 'bg-rose-500/10' }
 };
 
 export default function NotificationItem({ notification, onMarkAsRead, onNavigate }) {
@@ -22,7 +25,7 @@ export default function NotificationItem({ notification, onMarkAsRead, onNavigat
     if (onNavigate) onNavigate(notification);
   };
 
-  const senderAvatar = notification.sender?.profileImage;
+  const senderAvatar = getUserAvatar(notification.sender);
   const senderName = notification.sender?.name || 'Someone';
 
   return (
@@ -35,17 +38,12 @@ export default function NotificationItem({ notification, onMarkAsRead, onNavigat
     >
       {/* Sender Avatar with type icon overlay */}
       <div className="relative flex-shrink-0">
-        {senderAvatar ? (
-          <img
-            src={senderAvatar}
-            alt={senderName}
-            className="w-9 h-9 rounded-full object-cover"
-          />
-        ) : (
-          <div className="w-9 h-9 rounded-full bg-slate-200 dark:bg-white/10 flex items-center justify-center text-xs font-bold">
-            {senderName[0]}
-          </div>
-        )}
+        <img
+          src={senderAvatar}
+          onError={(e) => handleImageError(e, senderName)}
+          alt={senderName}
+          className="w-9 h-9 rounded-full object-cover"
+        />
         <span className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center ${typeInfo.bg}`}>
           <Icon className={`w-2.5 h-2.5 ${typeInfo.color}`} />
         </span>

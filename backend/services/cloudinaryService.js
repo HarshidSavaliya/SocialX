@@ -19,13 +19,23 @@ class CloudinaryService {
     // If Cloudinary is configured with real credentials, stream upload
     if (isCloudinaryConfigured) {
       return new Promise((resolve, reject) => {
+        const uploadOptions = {
+          folder,
+          resource_type: resourceType,
+          quality: 'auto',
+          fetch_format: 'auto'
+        };
+
+        if (resourceType === 'image' || (!resourceType && !mimeType.startsWith('video/'))) {
+          uploadOptions.transformation = [
+            { width: 1920, height: 1920, crop: 'limit' },
+            { quality: 'auto:good' },
+            { fetch_format: 'auto' }
+          ];
+        }
+
         const uploadStream = cloudinary.uploader.upload_stream(
-          {
-            folder,
-            resource_type: resourceType,
-            quality: 'auto',
-            fetch_format: 'auto'
-          },
+          uploadOptions,
           (error, result) => {
             if (error) {
               console.error('Cloudinary upload error:', error);

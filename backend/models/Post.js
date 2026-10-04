@@ -5,8 +5,7 @@ const postSchema = new mongoose.Schema(
     author: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: [true, 'Post must have an author'],
-      index: true
+      required: [true, 'Post must have an author']
     },
     caption: {
       type: String,

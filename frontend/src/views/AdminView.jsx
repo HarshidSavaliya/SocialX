@@ -4,16 +4,12 @@ import {
   ShieldCheck,
   Users,
   FileText,
-  UserX,
-  UserCheck,
   Trash2,
   Search,
   RefreshCw,
   AlertTriangle,
-  Clock,
   ChevronLeft,
   ChevronRight,
-  Filter,
   Eye,
   CheckCircle,
   XCircle,
@@ -47,7 +43,6 @@ export default function AdminView({ onNavigateToProfile }) {
 
   // Selected user for details modal
   const [selectedUserDetails, setSelectedUserDetails] = useState(null);
-  const [loadingUserDetails, setLoadingUserDetails] = useState(false);
 
   // Post Moderation State
   const [recentPosts, setRecentPosts] = useState([]);

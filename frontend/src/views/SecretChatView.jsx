@@ -8,24 +8,18 @@ import {
   Send,
   AlertTriangle,
   Trash2,
-  KeyRound,
   Fingerprint,
-  CheckCircle2,
   XCircle,
-  FileLock,
   ArrowLeft,
   Image,
-  Video,
   X,
-  MessageSquare,
-  Sparkles,
   Loader2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useSocket } from '../context/SocketContext';
 import { secretChatService } from '../services/secretChatService';
-import EmptyState from '../components/EmptyState';
+import { getUserAvatar, handleImageError } from '../utils/avatar';
 
 export default function SecretChatView({
   initialConversationId = null,
@@ -480,7 +474,8 @@ export default function SecretChatView({
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <img
-                      src={other?.profileImage || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'}
+                      src={getUserAvatar(other)}
+                      onError={(e) => handleImageError(e, other?.name)}
                       alt={other?.name}
                       className="w-8 h-8 rounded-full object-cover flex-shrink-0"
                     />
@@ -618,7 +613,8 @@ export default function SecretChatView({
               <div className="flex items-center gap-3">
                 <div className="relative">
                   <img
-                    src={otherParticipant?.profileImage || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'}
+                    src={getUserAvatar(otherParticipant)}
+                    onError={(e) => handleImageError(e, otherParticipant?.name)}
                     alt={otherParticipant?.name}
                     className="w-10 h-10 rounded-2xl object-cover ring-2 ring-emerald-500/40"
                   />

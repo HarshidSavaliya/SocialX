@@ -12,6 +12,7 @@ import {
 import { postService } from '../services/postService';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { getUserAvatar, handleImageError } from '../utils/avatar';
 
 export default function PostComposer({ onPostCreated, onOpenAuth }) {
   const { user, isAuthenticated } = useAuth();
@@ -102,15 +103,13 @@ export default function PostComposer({ onPostCreated, onOpenAuth }) {
     }
   };
 
-  const userAvatar =
-    user?.profileImage ||
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80';
+  const userAvatar = getUserAvatar(user);
 
   return (
     <div
       className={`p-4 sm:p-5 rounded-3xl transition-all duration-300 border ${isDark
-          ? 'bg-white/[0.04] border-white/[0.08] shadow-lg shadow-black/20'
-          : 'bg-white border-slate-200/80 shadow-xs'
+          ? 'bg-[#15131a]/90 backdrop-blur-xl border-white/[0.08] shadow-lg shadow-black/30'
+          : 'bg-white border-stone-200/80 shadow-xs'
         }`}
     >
       {/* Hidden file inputs */}
@@ -133,8 +132,9 @@ export default function PostComposer({ onPostCreated, onOpenAuth }) {
       <div className="flex gap-3 sm:gap-4 items-start">
         <img
           src={userAvatar}
+          onError={(e) => handleImageError(e, user?.name)}
           alt={user?.name || 'User'}
-          className="w-10 h-10 rounded-full object-cover ring-2 ring-indigo-500/20 flex-shrink-0"
+          className="w-10 h-10 rounded-full object-cover ring-2 ring-amber-500/30 flex-shrink-0"
         />
 
         <div className="flex-1 min-w-0">
@@ -258,11 +258,11 @@ export default function PostComposer({ onPostCreated, onOpenAuth }) {
         <button
           onClick={handleSubmit}
           disabled={isUploading || (!caption.trim() && !mediaFile)}
-          className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-bold transition-all duration-200 shadow-sm ${!caption.trim() && !mediaFile
-              ? 'opacity-40 cursor-not-allowed bg-slate-300 dark:bg-white/10 text-slate-500'
+          className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-black transition-all duration-200 shadow-sm ${!caption.trim() && !mediaFile
+              ? 'opacity-40 cursor-not-allowed bg-stone-300 dark:bg-white/10 text-stone-500'
               : isDark
-                ? 'bg-white text-slate-950 hover:bg-slate-100'
-                : 'bg-slate-900 text-white hover:bg-black'
+                ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-stone-950 hover:brightness-110 shadow-md shadow-amber-500/20 active:scale-95'
+                : 'bg-stone-900 text-white hover:bg-black'
             }`}
         >
           {isUploading ? (

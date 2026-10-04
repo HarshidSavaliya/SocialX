@@ -5,8 +5,7 @@ const secretMessageSchema = new mongoose.Schema(
     conversation: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'SecretConversation',
-      required: true,
-      index: true
+      required: true
     },
     sender: {
       type: mongoose.Schema.Types.ObjectId,

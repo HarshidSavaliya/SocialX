@@ -1,14 +1,12 @@
 import React from 'react';
 import FollowButton from './FollowButton';
 import { useTheme } from '../context/ThemeContext';
+import { getUserAvatar, handleImageError } from '../utils/avatar';
 
 export default function SuggestionCard({ user, onNavigate, onFollowToggle }) {
   const { isDark } = useTheme();
 
   const userId = user._id || user.id;
-  const avatar =
-    user.profileImage ||
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80';
 
   return (
     <div
@@ -17,7 +15,8 @@ export default function SuggestionCard({ user, onNavigate, onFollowToggle }) {
     >
       <div className="flex items-center gap-2.5 min-w-0">
         <img
-          src={avatar}
+          src={getUserAvatar(user)}
+          onError={(e) => handleImageError(e, user?.name)}
           alt={user.name}
           className="w-9 h-9 rounded-full object-cover flex-shrink-0 ring-1 ring-slate-200 dark:ring-white/10"
         />
