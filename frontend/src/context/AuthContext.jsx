@@ -3,6 +3,16 @@ import { authService } from '../services/authService';
 
 const AuthContext = createContext();
 
+const normalizeUser = (u) => {
+  if (!u) return null;
+  const id = (u._id || u.id)?.toString();
+  return {
+    ...u,
+    _id: id,
+    id: id
+  };
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(() => localStorage.getItem('socialx_token') || null);
@@ -15,7 +25,7 @@ export function AuthProvider({ children }) {
       if (storedToken) {
         try {
           const userData = await authService.getMe();
-          setUser(userData);
+          setUser(normalizeUser(userData));
           setToken(storedToken);
         } catch (err) {
           console.warn('Stored token is invalid or expired:', err.message);
@@ -43,16 +53,18 @@ export function AuthProvider({ children }) {
     const result = await authService.login({ emailOrUsername, password });
     localStorage.setItem('socialx_token', result.token);
     setToken(result.token);
-    setUser(result.user);
-    return result.user;
+    const normalized = normalizeUser(result.user);
+    setUser(normalized);
+    return normalized;
   };
 
   const register = async ({ name, username, email, password }) => {
     const result = await authService.register({ name, username, email, password });
     localStorage.setItem('socialx_token', result.token);
     setToken(result.token);
-    setUser(result.user);
-    return result.user;
+    const normalized = normalizeUser(result.user);
+    setUser(normalized);
+    return normalized;
   };
 
   const logout = async () => {
@@ -67,7 +79,7 @@ export function AuthProvider({ children }) {
   };
 
   const updateUser = (updatedFields) => {
-    setUser((prev) => (prev ? { ...prev, ...updatedFields } : prev));
+    setUser((prev) => (prev ? normalizeUser({ ...prev, ...updatedFields }) : prev));
   };
 
   // Quick 1-click Demo Login for testing college demo accounts

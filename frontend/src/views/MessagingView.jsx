@@ -134,7 +134,8 @@ export default function MessagingView({ onOpenSecretChat }) {
     };
 
     const handleTyping = ({ conversationId, userId, name }) => {
-      if (conversationId === activeConvId && userId !== user?._id?.toString()) {
+      const myId = (user?._id || user?.id)?.toString();
+      if (conversationId === activeConvId && userId?.toString() !== myId) {
         setTypingUsers(prev => ({ ...prev, [userId]: name || 'Someone' }));
       }
     };
@@ -151,9 +152,11 @@ export default function MessagingView({ onOpenSecretChat }) {
 
     const handleRead = ({ conversationId }) => {
       if (conversationId === activeConvId) {
-        setMessages(prev => prev.map(m =>
-          m.sender?._id === user?._id ? { ...m, isRead: true } : m
-        ));
+        const myId = (user?._id || user?.id)?.toString();
+        setMessages(prev => prev.map(m => {
+          const sId = (m.sender?._id || m.sender?.id || m.sender)?.toString();
+          return (sId && myId && sId === myId) ? { ...m, isRead: true } : m;
+        }));
       }
     };
 
@@ -168,7 +171,7 @@ export default function MessagingView({ onOpenSecretChat }) {
       socket.off('typing:stop', handleTypingStop);
       socket.off('message:read', handleRead);
     };
-  }, [socket, activeConvId, user?._id, loadConversations]);
+  }, [socket, activeConvId, user?._id, user?.id, loadConversations]);
 
   // Auto-scroll to bottom on new message
   useEffect(() => {
@@ -547,12 +550,15 @@ export default function MessagingView({ onOpenSecretChat }) {
                 </div>
               ) : (
                 messages.map(msg => {
-                  const isMe = msg.sender?._id === user?._id || msg.sender === user?._id;
+                  const myId = (user?._id || user?.id)?.toString();
+                  const senderId = (msg.sender?._id || msg.sender?.id || msg.sender)?.toString();
+                  const isMe = Boolean(myId && senderId && myId === senderId);
+
                   return (
-                    <div key={msg._id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                    <div key={msg._id} className={`flex flex-col w-full ${isMe ? 'items-end' : 'items-start'}`}>
                       <div className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 text-sm leading-relaxed shadow-xs ${isMe
-                          ? isDark ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-slate-900 text-white rounded-tr-sm'
-                          : isDark ? 'bg-white/[0.08] text-slate-100 rounded-tl-sm border border-white/10' : 'bg-slate-100 text-slate-800 rounded-tl-sm'
+                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-stone-950 font-medium rounded-tr-xs shadow-amber-500/15'
+                          : isDark ? 'bg-white/[0.08] text-slate-100 rounded-tl-xs border border-white/10' : 'bg-slate-100 text-slate-800 rounded-tl-xs border border-slate-200/80'
                         }`}>
                         {/* Media attachment if present */}
                         {msg.mediaUrl && (
@@ -571,11 +577,11 @@ export default function MessagingView({ onOpenSecretChat }) {
                         )}
                         {msg.text && <p className="whitespace-pre-wrap break-words">{msg.text}</p>}
                       </div>
-                      <div className="flex items-center gap-1 mt-0.5 px-1">
+                      <div className={`flex items-center gap-1 mt-0.5 px-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
                         <span className="text-[10px] text-slate-400">{formatMessageTime(msg.createdAt)}</span>
                         {isMe && (
                           msg.isRead
-                            ? <CheckCheck className="w-3 h-3 text-indigo-400" />
+                            ? <CheckCheck className="w-3 h-3 text-amber-500" />
                             : <Check className="w-3 h-3 text-slate-400" />
                         )}
                       </div>

@@ -692,7 +692,9 @@ export default function SecretChatView({
                 </div>
               ) : (
                 messages.map((msg) => {
-                  const isMe = msg.sender?._id === user?.id || msg.sender === user?.id;
+                  const myId = (user?._id || user?.id)?.toString();
+                  const senderId = (msg.sender?._id || msg.sender?.id || msg.sender)?.toString();
+                  const isMe = Boolean(myId && senderId && myId === senderId);
 
                   // 1. View-Once Media Message
                   if (msg.isViewOnce) {
