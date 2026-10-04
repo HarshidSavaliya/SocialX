@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "A modern social media platform built with the MERN stack.",
   "scripts": {
+    "start": "npm --prefix backend start",
+    "build": "npm --prefix backend install",
+    "postinstall": "npm --prefix backend install",
     "install-server": "npm --prefix backend install",
     "install-client": "npm --prefix frontend install",
     "seed": "npm --prefix backend run seed",
