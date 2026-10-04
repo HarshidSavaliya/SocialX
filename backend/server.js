@@ -1,9 +1,15 @@
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { connectDB } from './config/db.js';
 import { initSocket } from './socket/socketServer.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Phase 1 & 2 Routes
 import authRoutes from './routes/authRoutes.js';
@@ -52,7 +58,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Health check
-app.get(['/', '/api'], (req, res) => {
+app.get(['/api', '/api/health'], (req, res) => {
   res.json({
     status: 'online',
     project: 'SocialX API',
@@ -83,6 +89,28 @@ app.use('/api/video-calls', videoCallRoutes);
 
 // Stories API Routes
 app.use('/api/stories', storyRoutes);
+
+// Serve Frontend in Production / Deployment
+const frontendDistPath = path.resolve(__dirname, '../frontend/dist');
+if (fs.existsSync(frontendDistPath)) {
+  app.use(express.static(frontendDistPath));
+
+  app.get('*', (req, res, next) => {
+    if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/socket.io')) {
+      return next();
+    }
+    res.sendFile(path.join(frontendDistPath, 'index.html'));
+  });
+} else {
+  app.get('/', (req, res) => {
+    res.json({
+      status: 'online',
+      project: 'SocialX API',
+      version: '5.0.0',
+      message: 'Backend API is running. Frontend build not found. Run npm run build-client to build frontend assets.'
+    });
+  });
+}
 
 // Error Handling
 app.use(notFound);

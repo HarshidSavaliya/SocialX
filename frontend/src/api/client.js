@@ -4,8 +4,14 @@ export const getApiBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
-  return `http://${host}:5000/api`;
+  if (typeof window !== 'undefined') {
+    if (window.location.port !== '5173') {
+      return `${window.location.origin}/api`;
+    }
+    const host = window.location.hostname || 'localhost';
+    return `http://${host}:5000/api`;
+  }
+  return 'http://localhost:5000/api';
 };
 
 const apiClient = axios.create({

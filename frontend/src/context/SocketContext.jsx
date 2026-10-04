@@ -6,8 +6,14 @@ export const getSocketUrl = () => {
   if (import.meta.env.VITE_SOCKET_URL) {
     return import.meta.env.VITE_SOCKET_URL;
   }
-  const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
-  return `http://${host}:5000`;
+  if (typeof window !== 'undefined') {
+    if (window.location.port !== '5173') {
+      return window.location.origin;
+    }
+    const host = window.location.hostname || 'localhost';
+    return `http://${host}:5000`;
+  }
+  return 'http://localhost:5000';
 };
 
 const SocketContext = createContext(null);
