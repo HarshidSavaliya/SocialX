@@ -38,6 +38,9 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
   const [filePreview, setFilePreview] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [sending, setSending] = useState(false);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
   // Message Actions & Context Menu States
   const [activeMenu, setActiveMenu] = useState(null); // { msg, top, left, isMe }
@@ -89,7 +92,7 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
     } finally {
       setLoadingConvs(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, activeConvId]);
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
 
@@ -108,10 +111,16 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
 
     setLoadingMsgs(true);
     setMessages([]);
+    setNextCursor(null);
+    setHasMore(false);
     setTypingUsers({});
 
-    messageService.getMessages(activeConvId, 1, 50)
-      .then(res => setMessages(res.messages || []))
+    messageService.getMessages(activeConvId, { limit: 30 })
+      .then(res => {
+        setMessages(res.messages || []);
+        setNextCursor(res.nextCursor || null);
+        setHasMore(Boolean(res.hasMore));
+      })
       .catch(e => console.warn('Load messages error:', e.message))
       .finally(() => setLoadingMsgs(false));
 
@@ -124,6 +133,26 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
     );
   }, [activeConvId, socket]);
 
+  // Load older messages via cursor pagination
+  const handleLoadOlder = async () => {
+    if (!nextCursor || loadingOlder || !activeConvId) return;
+    setLoadingOlder(true);
+    try {
+      const res = await messageService.getMessages(activeConvId, { cursor: nextCursor, limit: 30 });
+      setMessages(prev => {
+        const existingIds = new Set(prev.map(m => m._id));
+        const newOlder = (res.messages || []).filter(m => !existingIds.has(m._id));
+        return [...newOlder, ...prev];
+      });
+      setNextCursor(res.nextCursor || null);
+      setHasMore(Boolean(res.hasMore));
+    } catch (e) {
+      console.warn('Load older messages error:', e.message);
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
+
   // Socket: receive messages + typing
   useEffect(() => {
     if (!socket) return;
@@ -132,7 +161,9 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
       const convId = msg.conversation?._id || msg.conversation;
       if (convId === activeConvId) {
         setMessages(prev => {
-          if (prev.some(m => m._id === msg._id)) return prev;
+          if (prev.some(m => m._id === msg._id || (msg.clientMessageId && m.clientMessageId === msg.clientMessageId))) {
+            return prev.map(m => (msg.clientMessageId && m.clientMessageId === msg.clientMessageId ? msg : m));
+          }
           return [...prev, msg];
         });
         messageService.markAsRead(activeConvId).catch(() => { });
@@ -366,6 +397,8 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
     setReplyingTo(null);
     setSending(true);
 
+    const clientMessageId = `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
     if (socket && activeConvId) {
       socket.emit('typing:stop', { conversationId: activeConvId });
     }
@@ -374,10 +407,13 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
         receiverId: activeOther._id,
         text,
         file: fileToSend,
-        replyTo: replyToId
+        replyTo: replyToId,
+        clientMessageId
       });
       setMessages(prev => {
-        if (prev.some(m => m._id === msg._id)) return prev;
+        if (prev.some(m => m._id === msg._id || (m.clientMessageId && m.clientMessageId === msg.clientMessageId))) {
+          return prev.map(m => (m.clientMessageId === msg.clientMessageId ? msg : m));
+        }
         return [...prev, msg];
       });
     } catch (e) {
@@ -735,6 +771,20 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                 if (activeMenu) setActiveMenu(null);
               }}
             >
+              {hasMore && (
+                <div className="flex justify-center py-2">
+                  <button
+                    type="button"
+                    onClick={handleLoadOlder}
+                    disabled={loadingOlder}
+                    className="text-xs px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-slate-200 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    {loadingOlder ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                    <span>{loadingOlder ? 'Loading older messages...' : '↑ Load older messages'}</span>
+                  </button>
+                </div>
+              )}
+
               {loadingMsgs ? (
                 <div className="flex justify-center pt-8"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>
               ) : messages.length === 0 ? (
@@ -799,6 +849,8 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                             <div className="mb-2 rounded-xl overflow-hidden max-w-sm">
                               {msg.mediaType === 'video' ? (
                                 <video src={msg.mediaUrl} controls className="max-h-60 rounded-xl w-full" />
+                              ) : msg.mediaType === 'audio' ? (
+                                <audio src={msg.mediaUrl} controls className="w-full my-1" />
                               ) : (
                                 <img
                                   src={msg.mediaUrl}

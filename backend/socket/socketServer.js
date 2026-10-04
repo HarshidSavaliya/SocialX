@@ -75,9 +75,21 @@ export const initSocket = (httpServer) => {
     // ==========================================
     // 1. NORMAL CHAT ROOM MANAGEMENT (Phase 3)
     // ==========================================
-    socket.on('conversation:join', (conversationId) => {
-      if (conversationId) {
-        socket.join(`conversation:${conversationId}`);
+    socket.on('conversation:join', async (conversationId) => {
+      if (!conversationId) return;
+      try {
+        const Conversation = (await import('../models/Conversation.js')).default;
+        const isAuthorized = await Conversation.exists({
+          _id: conversationId,
+          participants: socket.user._id
+        });
+        if (isAuthorized) {
+          socket.join(`conversation:${conversationId}`);
+        } else {
+          socket.emit('error', { message: 'Unauthorized conversation room access' });
+        }
+      } catch (err) {
+        console.warn('Socket conversation join error:', err.message);
       }
     });
 
@@ -88,7 +100,7 @@ export const initSocket = (httpServer) => {
     });
 
     socket.on('typing:start', ({ conversationId }) => {
-      if (conversationId) {
+      if (conversationId && socket.rooms.has(`conversation:${conversationId}`)) {
         socket.to(`conversation:${conversationId}`).emit('typing:user', {
           conversationId,
           userId,
@@ -99,7 +111,7 @@ export const initSocket = (httpServer) => {
     });
 
     socket.on('typing:stop', ({ conversationId }) => {
-      if (conversationId) {
+      if (conversationId && socket.rooms.has(`conversation:${conversationId}`)) {
         socket.to(`conversation:${conversationId}`).emit('typing:stop', {
           conversationId,
           userId
@@ -109,12 +121,29 @@ export const initSocket = (httpServer) => {
 
     // ==========================================
     // 2. SECRET CHAT ROOM MANAGEMENT (Phase 4)
-    // Strictly isolated room namespace & events
+    // Strictly isolated room namespace & events with Token Authorization
     // ==========================================
-    socket.on('secret:conversation:join', async (conversationId) => {
+    socket.on('secret:conversation:join', async (payload) => {
+      const conversationId = typeof payload === 'object' ? payload.conversationId : payload;
+      const secretToken = typeof payload === 'object' ? payload.secretToken : null;
       if (!conversationId) return;
 
       try {
+        // Enforce scoped Secret Access Token verification
+        if (secretToken) {
+          const decoded = jwt.verify(
+            secretToken,
+            process.env.JWT_SECRET || 'socialx_jwt_secret_college_project_key_2026'
+          );
+          if (
+            decoded.conversationId !== conversationId.toString() ||
+            decoded.userId !== userId ||
+            !decoded.secretAccess
+          ) {
+            return socket.emit('error', { message: 'Invalid or expired secret session token' });
+          }
+        }
+
         const conv = await SecretConversation.findById(conversationId);
         if (!conv || !conv.isActive) return;
 
@@ -125,6 +154,8 @@ export const initSocket = (httpServer) => {
 
         if (isParticipant) {
           socket.join(`secret:conversation:${conversationId}`);
+        } else {
+          socket.emit('error', { message: 'Access denied: You are not a participant in this secret chat' });
         }
       } catch (err) {
         console.warn('Socket secret join error:', err.message);
@@ -138,7 +169,7 @@ export const initSocket = (httpServer) => {
     });
 
     socket.on('secret:typing:start', ({ conversationId }) => {
-      if (conversationId) {
+      if (conversationId && socket.rooms.has(`secret:conversation:${conversationId}`)) {
         socket.to(`secret:conversation:${conversationId}`).emit('secret:typing:user', {
           conversationId,
           userId
@@ -147,7 +178,7 @@ export const initSocket = (httpServer) => {
     });
 
     socket.on('secret:typing:stop', ({ conversationId }) => {
-      if (conversationId) {
+      if (conversationId && socket.rooms.has(`secret:conversation:${conversationId}`)) {
         socket.to(`secret:conversation:${conversationId}`).emit('secret:typing:stop', {
           conversationId,
           userId

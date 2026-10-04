@@ -1,6 +1,16 @@
 import apiClient from '../api/client';
 
 export const secretChatService = {
+  async registerPublicKey(publicKey) {
+    const res = await apiClient.post('/secret-chats/keys', { publicKey });
+    return res.data;
+  },
+
+  async getPublicKey(userId) {
+    const res = await apiClient.get(`/secret-chats/keys/${userId}`);
+    return res.data.data.publicKey;
+  },
+
   async startSecretChat({ targetUserId, pin, autoDeleteLimit = 20 }) {
     const res = await apiClient.post('/secret-chats', {
       targetUserId,
@@ -42,14 +52,29 @@ export const secretChatService = {
     return res.data.data;
   },
 
-  async sendMessage(conversationId, secretToken, formData) {
+  async sendMessage(conversationId, secretToken, payload) {
+    // If FormData (with encrypted media)
+    if (payload instanceof FormData) {
+      const res = await apiClient.post(
+        `/secret-chats/${conversationId}/messages`,
+        payload,
+        {
+          headers: {
+            'x-secret-token': secretToken,
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+      return res.data.data;
+    }
+
+    // JSON payload
     const res = await apiClient.post(
       `/secret-chats/${conversationId}/messages`,
-      formData,
+      payload,
       {
         headers: {
-          'x-secret-token': secretToken,
-          'Content-Type': 'multipart/form-data'
+          'x-secret-token': secretToken
         }
       }
     );

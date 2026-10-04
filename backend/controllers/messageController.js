@@ -3,20 +3,26 @@ import messageService from '../services/messageService.js';
 export const sendMessage = async (req, res, next) => {
   try {
     const receiverId = req.body.receiverId || req.body.recipientId;
-    const { replyTo } = req.body;
+    const { replyTo, clientMessageId } = req.body;
     let { mediaUrl, mediaType } = req.body;
+    let mediaPublicId = null;
     const text = req.body.text || req.body.content || '';
 
     if (req.file) {
       const cloudinaryService = (await import('../services/cloudinaryService.js')).default;
+      const isAudio = req.file.mimetype.startsWith('audio/');
+      const isVideo = req.file.mimetype.startsWith('video/');
+      const resourceType = isAudio ? 'video' : (isVideo ? 'video' : 'image');
+
       const uploadRes = await cloudinaryService.uploadMedia(
         req.file.buffer,
         'socialx/chat',
-        'auto',
+        resourceType,
         req.file.mimetype
       );
       mediaUrl = uploadRes.url;
-      mediaType = uploadRes.resourceType || (req.file.mimetype.startsWith('video/') ? 'video' : 'image');
+      mediaPublicId = uploadRes.publicId;
+      mediaType = isAudio ? 'audio' : (isVideo ? 'video' : 'image');
     }
 
     if (!receiverId) {
@@ -27,8 +33,10 @@ export const sendMessage = async (req, res, next) => {
       receiverId,
       text,
       mediaUrl,
+      mediaPublicId,
       mediaType,
-      replyTo: replyTo || null
+      replyTo: replyTo || null,
+      clientMessageId: clientMessageId || null
     });
     res.status(201).json({ success: true, data: { message }, message });
   } catch (err) {

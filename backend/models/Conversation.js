@@ -9,6 +9,9 @@ const conversationSchema = new mongoose.Schema(
         required: true
       }
     ],
+    participantKey: {
+      type: String
+    },
     lastMessage: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Message',
@@ -31,6 +34,7 @@ const conversationSchema = new mongoose.Schema(
 
 // Compound index to quickly find user conversations ordered by most recent message
 conversationSchema.index({ participants: 1, lastMessageAt: -1 });
+conversationSchema.index({ participantKey: 1 }, { unique: true, sparse: true });
 
 const Conversation = mongoose.model('Conversation', conversationSchema);
 

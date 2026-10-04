@@ -78,12 +78,35 @@ export default function PostComposer({ onPostCreated, onOpenAuth }) {
     setError(null);
 
     try {
-      const formData = new FormData();
-      if (caption.trim()) formData.append('caption', caption.trim());
-      if (hashtags.trim()) formData.append('hashtags', hashtags.trim());
-      if (mediaFile) formData.append('media', mediaFile);
+      let createdPost;
 
-      const createdPost = await postService.createPost(formData);
+      if (mediaFile && mediaType === 'video') {
+        try {
+          const sig = await postService.getUploadSignature({
+            folder: 'socialx/reels',
+            resourceType: 'video'
+          });
+          const directMeta = await postService.uploadDirectToCloudinary(mediaFile, sig);
+          createdPost = await postService.createPost({
+            caption: caption.trim(),
+            hashtags: hashtags.trim(),
+            directMedia: directMeta
+          });
+        } catch (directErr) {
+          console.warn('PostComposer direct upload fallback:', directErr.message);
+          const formData = new FormData();
+          if (caption.trim()) formData.append('caption', caption.trim());
+          if (hashtags.trim()) formData.append('hashtags', hashtags.trim());
+          formData.append('media', mediaFile);
+          createdPost = await postService.createPost(formData);
+        }
+      } else {
+        const formData = new FormData();
+        if (caption.trim()) formData.append('caption', caption.trim());
+        if (hashtags.trim()) formData.append('hashtags', hashtags.trim());
+        if (mediaFile) formData.append('media', mediaFile);
+        createdPost = await postService.createPost(formData);
+      }
 
       // Reset state
       setCaption('');

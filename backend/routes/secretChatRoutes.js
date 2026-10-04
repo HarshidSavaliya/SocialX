@@ -1,5 +1,7 @@
 import express from 'express';
 import {
+  registerPublicKey,
+  getPublicKey,
   startSecretChat,
   getSecretConversations,
   verifyPin,
@@ -15,6 +17,10 @@ const router = express.Router();
 
 // Enforce authentication on all secret chat endpoints
 router.use(authenticateUser);
+
+// E2EE Cryptographic Public Key Exchange
+router.post('/keys', registerPublicKey);
+router.get('/keys/:userId', getPublicKey);
 
 // R.10.1 Start Secret Chat & list active conversations
 router.post('/', startSecretChat);

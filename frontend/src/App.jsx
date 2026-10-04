@@ -39,7 +39,7 @@ function SocialXMain() {
   const { socket } = useSocket() || {};
   const [secretInviteNotification, setSecretInviteNotification] = useState(null);
 
-  // Navigation states: 'feed' | 'profile' | 'messages' | 'search' | 'notifications' | 'explore'
+  // Navigation states: 'feed' | 'profile' | 'messages' | 'search' | 'notifications' | 'reels' | 'admin' | 'create-post'
   const [activeView, setActiveView] = useState('feed');
   const [targetUsername, setTargetUsername] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -500,12 +500,15 @@ function SocialXMain() {
                 )}
 
                 {/* VIEW E: REELS */}
-                {(activeView === 'reels' || activeView === 'explore') && (
+                {activeView === 'reels' && (
                   <ReelsView
                     onNavigateToProfile={handleNavigateToProfile}
                     onHashtagClick={handleHashtagClick}
+                    onOpenAuth={() => setShowAuthModal(true)}
                   />
                 )}
+
+
 
                 {/* VIEW F: CREATE POST */}
                 {activeView === 'create-post' && (

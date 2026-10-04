@@ -1,5 +1,35 @@
 import secretChatService from '../services/secretChatService.js';
 
+export const registerPublicKey = async (req, res, next) => {
+  try {
+    const { publicKey } = req.body;
+    if (!publicKey) {
+      return res.status(400).json({ success: false, message: 'Public key is required' });
+    }
+    const result = await secretChatService.registerPublicKey(req.user._id, publicKey);
+    res.status(200).json({
+      success: true,
+      message: 'Public key registered successfully',
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPublicKey = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const result = await secretChatService.getPublicKey(userId);
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const startSecretChat = async (req, res, next) => {
   try {
     const { targetUserId, pin, autoDeleteLimit } = req.body;
@@ -67,13 +97,27 @@ export const getMessages = async (req, res, next) => {
 
 export const sendMessage = async (req, res, next) => {
   try {
-    const { content, text, isViewOnce } = req.body;
+    const {
+      ciphertext,
+      iv,
+      authTag,
+      encryptedMetadata,
+      mediaIv,
+      isViewOnce,
+      clientMessageId
+    } = req.body;
+
     const message = await secretChatService.sendMessage({
       conversationId: req.params.id,
       senderId: req.user._id,
-      text: content || text,
+      ciphertext: ciphertext || req.body.content || req.body.text || '',
+      iv: iv || null,
+      authTag: authTag || null,
+      encryptedMetadata: encryptedMetadata || null,
+      mediaIv: mediaIv || null,
       file: req.file,
-      isViewOnce: isViewOnce === 'true' || isViewOnce === true
+      isViewOnce: isViewOnce === 'true' || isViewOnce === true,
+      clientMessageId: clientMessageId || null
     });
 
     res.status(201).json({

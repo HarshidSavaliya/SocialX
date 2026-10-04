@@ -176,16 +176,36 @@ export default function CreatePostView({ onPostCreated, onCancel }) {
     setError(null);
 
     try {
-      const formData = new FormData();
-      if (caption.trim()) formData.append('caption', caption.trim());
-      if (hashtags.length > 0) {
-        formData.append('hashtags', hashtags.join(','));
-      }
-      if (mediaFile) {
-        formData.append('media', mediaFile);
-      }
+      let createdPost;
 
-      const createdPost = await postService.createPost(formData);
+      // For video content: Attempt direct signed Cloudinary upload to save server memory/bandwidth
+      if (mediaFile && mediaType === 'video') {
+        try {
+          const sig = await postService.getUploadSignature({
+            folder: 'socialx/reels',
+            resourceType: 'video'
+          });
+          const directMeta = await postService.uploadDirectToCloudinary(mediaFile, sig);
+          createdPost = await postService.createPost({
+            caption: caption.trim(),
+            hashtags: hashtags.length > 0 ? hashtags.join(',') : '',
+            directMedia: directMeta
+          });
+        } catch (directErr) {
+          console.warn('Direct Cloudinary upload fallback to standard pipeline:', directErr.message);
+          const formData = new FormData();
+          if (caption.trim()) formData.append('caption', caption.trim());
+          if (hashtags.length > 0) formData.append('hashtags', hashtags.join(','));
+          formData.append('media', mediaFile);
+          createdPost = await postService.createPost(formData);
+        }
+      } else {
+        const formData = new FormData();
+        if (caption.trim()) formData.append('caption', caption.trim());
+        if (hashtags.length > 0) formData.append('hashtags', hashtags.join(','));
+        if (mediaFile) formData.append('media', mediaFile);
+        createdPost = await postService.createPost(formData);
+      }
 
       setSuccess(true);
       setTimeout(() => {

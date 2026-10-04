@@ -48,6 +48,35 @@ const postSchema = new mongoose.Schema(
     views: {
       type: Number,
       default: 0
+    },
+    thumbnailUrl: {
+      type: String,
+      default: ''
+    },
+    duration: {
+      type: Number,
+      default: 0
+    },
+    width: {
+      type: Number,
+      default: 0
+    },
+    height: {
+      type: Number,
+      default: 0
+    },
+    format: {
+      type: String,
+      default: ''
+    },
+    bytes: {
+      type: Number,
+      default: 0
+    },
+    visibility: {
+      type: String,
+      enum: ['public', 'followers', 'private'],
+      default: 'public'
     }
   },
   {
@@ -55,9 +84,11 @@ const postSchema = new mongoose.Schema(
   }
 );
 
-// Compound indexes for high-performance feed queries
+// High-performance compound indexes for Reels and feed queries
+postSchema.index({ mediaType: 1, createdAt: -1, _id: -1 });
+postSchema.index({ visibility: 1, mediaType: 1, createdAt: -1, _id: -1 });
 postSchema.index({ author: 1, createdAt: -1 });
-postSchema.index({ createdAt: -1 });
+postSchema.index({ createdAt: -1, _id: -1 });
 postSchema.index({ hashtags: 1 });
 
 const Post = mongoose.model('Post', postSchema);

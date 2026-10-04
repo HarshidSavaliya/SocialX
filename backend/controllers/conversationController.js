@@ -25,8 +25,8 @@ export const createConversation = async (req, res, next) => {
 export const getMessages = async (req, res, next) => {
   try {
     const { conversationId } = req.params;
-    const { page = 1, limit = 30 } = req.query;
-    const result = await messageService.getMessages(conversationId, req.user._id, { page, limit });
+    const { cursor, page, limit = 30 } = req.query;
+    const result = await messageService.getMessages(conversationId, req.user._id, { cursor, page, limit });
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);

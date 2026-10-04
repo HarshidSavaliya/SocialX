@@ -11,26 +11,47 @@ export const messageService = {
     return res.data.data.conversation;
   },
 
-  async getMessages(conversationId, page = 1, limit = 30) {
-    const res = await apiClient.get(
-      `/conversations/${conversationId}/messages?page=${page}&limit=${limit}`
-    );
+  async getMessages(conversationId, cursorOrPage = null, limit = 30) {
+    let url = `/conversations/${conversationId}/messages?limit=${limit}`;
+
+    if (typeof cursorOrPage === 'string') {
+      url += `&cursor=${encodeURIComponent(cursorOrPage)}`;
+    } else if (typeof cursorOrPage === 'number') {
+      url += `&page=${cursorOrPage}`;
+    } else if (typeof cursorOrPage === 'object' && cursorOrPage !== null) {
+      if (cursorOrPage.cursor) url += `&cursor=${encodeURIComponent(cursorOrPage.cursor)}`;
+      else if (cursorOrPage.page) url += `&page=${cursorOrPage.page}`;
+      if (cursorOrPage.limit) url = url.replace(/limit=\d+/, `limit=${cursorOrPage.limit}`);
+    }
+
+    const res = await apiClient.get(url);
     return res.data.data;
   },
 
-  async sendMessage({ receiverId, text, mediaUrl, mediaType, file, replyTo }) {
+  async sendMessage({ receiverId, text, mediaUrl, mediaType, file, replyTo, clientMessageId }) {
+    const id = clientMessageId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
     if (file) {
       const formData = new FormData();
       formData.append('receiverId', receiverId);
       if (text) formData.append('text', text);
       if (replyTo) formData.append('replyTo', replyTo);
+      formData.append('clientMessageId', id);
       formData.append('media', file);
       const res = await apiClient.post('/messages', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       return res.data.data.message;
     }
-    const res = await apiClient.post('/messages', { receiverId, text, mediaUrl, mediaType, replyTo });
+
+    const res = await apiClient.post('/messages', {
+      receiverId,
+      text,
+      mediaUrl,
+      mediaType,
+      replyTo,
+      clientMessageId: id
+    });
     return res.data.data.message;
   },
 

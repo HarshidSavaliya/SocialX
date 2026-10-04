@@ -102,7 +102,15 @@ const userSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
       }
-    ]
+    ],
+    e2ePublicKey: {
+      type: String,
+      default: null
+    },
+    e2ePublicKeyUpdatedAt: {
+      type: Date,
+      default: null
+    }
   },
   {
     timestamps: true

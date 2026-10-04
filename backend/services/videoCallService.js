@@ -18,7 +18,7 @@ class VideoCallService {
     }
 
     // 2. Validate caller
-    const caller = await User.findById(callerId).select('name username profileImage accountStatus');
+    const caller = await User.findById(callerId).select('name username profileImage accountStatus blockedUsers');
     if (!caller) {
       const err = new Error('Caller account not found');
       err.statusCode = 404;
@@ -31,7 +31,7 @@ class VideoCallService {
     }
 
     // 3. Validate receiver
-    const receiver = await User.findById(receiverId).select('name username profileImage accountStatus');
+    const receiver = await User.findById(receiverId).select('name username profileImage accountStatus blockedUsers');
     if (!receiver) {
       const err = new Error('Recipient user not found');
       err.statusCode = 404;
@@ -39,6 +39,15 @@ class VideoCallService {
     }
     if (receiver.accountStatus === 'BLOCKED') {
       const err = new Error('Cannot call a suspended user');
+      err.statusCode = 403;
+      throw err;
+    }
+
+    // Check block list in both directions
+    const isBlockedByReceiver = receiver.blockedUsers?.some((b) => b.toString() === callerId.toString());
+    const hasBlockedReceiver = caller.blockedUsers?.some((b) => b.toString() === receiverId.toString());
+    if (isBlockedByReceiver || hasBlockedReceiver) {
+      const err = new Error('Cannot call this user due to privacy or block settings');
       err.statusCode = 403;
       throw err;
     }

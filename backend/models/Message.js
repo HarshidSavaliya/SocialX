@@ -19,6 +19,10 @@ const messageSchema = new mongoose.Schema(
       required: true,
       index: true
     },
+    clientMessageId: {
+      type: String,
+      default: null
+    },
     text: {
       type: String,
       trim: true,
@@ -28,9 +32,13 @@ const messageSchema = new mongoose.Schema(
       type: String,
       default: null
     },
+    mediaPublicId: {
+      type: String,
+      default: null
+    },
     mediaType: {
       type: String,
-      enum: ['image', 'video', null],
+      enum: ['image', 'video', 'audio', null],
       default: null
     },
     isRead: {
@@ -63,8 +71,11 @@ const messageSchema = new mongoose.Schema(
   }
 );
 
-messageSchema.index({ conversation: 1, createdAt: 1 });
-messageSchema.index({ conversation: 1, createdAt: -1 });
+// Compound index for stable cursor pagination
+messageSchema.index({ conversation: 1, createdAt: -1, _id: -1 });
+// Sparse index for message idempotency/deduplication
+messageSchema.index({ conversation: 1, clientMessageId: 1 }, { sparse: true });
+// Index for unread queries
 messageSchema.index({ receiver: 1, isRead: 1 });
 
 const Message = mongoose.model('Message', messageSchema);

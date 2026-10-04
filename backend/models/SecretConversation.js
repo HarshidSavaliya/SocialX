@@ -9,6 +9,9 @@ const secretConversationSchema = new mongoose.Schema(
         required: true
       }
     ],
+    participantKey: {
+      type: String
+    },
     pinHash: {
       type: String,
       required: [true, 'Security PIN hash is required'],
@@ -39,6 +42,7 @@ const secretConversationSchema = new mongoose.Schema(
   }
 );
 
+secretConversationSchema.index({ participantKey: 1, isActive: 1 });
 secretConversationSchema.index({ participants: 1, isActive: 1 });
 secretConversationSchema.index({ lastMessageAt: -1 });
 

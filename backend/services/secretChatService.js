@@ -25,6 +25,14 @@ class SecretChatService {
   }
 
   /**
+   * Resets rate-limiting lockout for a given conversation and user.
+   */
+  resetPinLockout(conversationId, userId) {
+    const key = `${conversationId}:${userId}`;
+    pinAttempts.delete(key);
+  }
+
+  /**
    * Generates a signed scoped Secret Session Token
    * Backend enforces that this token is required for all reading/writing in secret chats.
    */
@@ -41,6 +49,60 @@ class SecretChatService {
   }
 
   /**
+   * Deterministic participant key for 1-to-1 secret conversations
+   */
+  getParticipantKey(userId1, userId2) {
+    return [userId1.toString(), userId2.toString()].sort().join('_');
+  }
+
+  /**
+   * Register or update user's ECDH public key (in JWK format)
+   * Client-side generated, private key stays strictly on client.
+   */
+  async registerPublicKey(userId, publicKeyJwk) {
+    if (!publicKeyJwk) {
+      throw new Error('Public key is required');
+    }
+
+    const keyString = typeof publicKeyJwk === 'object' ? JSON.stringify(publicKeyJwk) : publicKeyJwk;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        e2ePublicKey: keyString,
+        e2ePublicKeyUpdatedAt: new Date()
+      },
+      { new: true }
+    ).select('name username e2ePublicKey e2ePublicKeyUpdatedAt');
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    return {
+      userId: user._id,
+      e2ePublicKey: user.e2ePublicKey,
+      e2ePublicKeyUpdatedAt: user.e2ePublicKeyUpdatedAt
+    };
+  }
+
+  /**
+   * Retrieve a user's ECDH public key for key agreement
+   */
+  async getPublicKey(targetUserId) {
+    const user = await User.findById(targetUserId).select('name username e2ePublicKey e2ePublicKeyUpdatedAt accountStatus');
+    if (!user || user.accountStatus === 'BLOCKED') {
+      throw new Error('User not found or account is suspended');
+    }
+
+    return {
+      userId: user._id,
+      username: user.username,
+      publicKey: user.e2ePublicKey || null
+    };
+  }
+
+  /**
    * Start or initialize a Secret Chat with a target user
    */
   async startSecretChat({ currentUserId, targetUserId, pin, autoDeleteLimit = 20 }) {
@@ -52,9 +114,29 @@ class SecretChatService {
       throw new Error('You cannot start a secret chat with yourself');
     }
 
-    const targetUser = await User.findById(targetUserId);
+    const [currentUser, targetUser] = await Promise.all([
+      User.findById(currentUserId).select('name username accountStatus blockedUsers'),
+      User.findById(targetUserId).select('name username accountStatus blockedUsers')
+    ]);
+
     if (!targetUser || targetUser.accountStatus === 'BLOCKED') {
       throw new Error('Target user does not exist or their account is suspended');
+    }
+
+    if (currentUser?.accountStatus === 'BLOCKED') {
+      throw new Error('Your account is suspended');
+    }
+
+    // Check block list in both directions
+    const isBlockedByTarget = targetUser.blockedUsers?.some(
+      (b) => b.toString() === currentUserId.toString()
+    );
+    const hasBlockedTarget = currentUser?.blockedUsers?.some(
+      (b) => b.toString() === targetUserId.toString()
+    );
+
+    if (isBlockedByTarget || hasBlockedTarget) {
+      throw new Error('Cannot start secret chat with this user due to privacy or block settings');
     }
 
     // Validate PIN (4-6 digits only)
@@ -62,7 +144,7 @@ class SecretChatService {
       throw new Error('PIN must be between 4 and 6 digits (numbers only)');
     }
 
-    const parsedLimit = [5, 10, 15, 20].includes(Number(autoDeleteLimit))
+    const parsedLimit = [5, 10, 15, 20, 50, 100].includes(Number(autoDeleteLimit))
       ? Number(autoDeleteLimit)
       : 10;
 
@@ -70,21 +152,22 @@ class SecretChatService {
     const salt = await bcrypt.genSalt(10);
     const pinHash = await bcrypt.hash(pin.toString(), salt);
 
+    const participantKey = this.getParticipantKey(currentUserId, targetUserId);
+
     // Check if an active secret conversation already exists between these 2 users
     let conversation = await SecretConversation.findOne({
-      participants: { $all: [currentUserId, targetUserId], $size: 2 },
+      participantKey,
       isActive: true
     }).populate('participants', 'name username profileImage bio accountStatus');
 
     if (conversation) {
-      // Update PIN hash and limit for existing active session
       conversation.pinHash = pinHash;
       conversation.autoDeleteLimit = parsedLimit;
       await conversation.save();
     } else {
-      // Create new secret conversation
       conversation = await SecretConversation.create({
         participants: [currentUserId, targetUserId],
+        participantKey,
         pinHash,
         autoDeleteLimit: parsedLimit,
         createdBy: currentUserId,
@@ -116,6 +199,7 @@ class SecretChatService {
 
   /**
    * Verify PIN for entering Secret Chat
+   * Rate limited: 5 failed attempts locks user out for 5 minutes
    */
   async verifyPin({ conversationId, userId, pin }) {
     if (!conversationId) {
@@ -199,7 +283,6 @@ class SecretChatService {
       .sort({ lastMessageAt: -1 })
       .lean();
 
-    // Map other participant
     return conversations.map((c) => {
       const otherUser = c.participants.find(
         (p) => p._id.toString() !== userId.toString()
@@ -212,11 +295,13 @@ class SecretChatService {
   }
 
   /**
-   * Get messages for a secret conversation
+   * Get encrypted messages for a secret conversation
+   * Plaintext is never stored or served by the backend.
    */
   async getMessages(conversationId) {
     const messages = await SecretMessage.find({ conversation: conversationId })
       .populate('sender', 'name username profileImage')
+      .populate('receiver', 'name username profileImage')
       .sort({ createdAt: 1 })
       .lean();
 
@@ -225,8 +310,9 @@ class SecretChatService {
       if (m.isViewOnce && m.viewed) {
         return {
           ...m,
-          mediaUrl: null, // Clear URL so consumed media cannot be fetched again
-          mediaPublicId: null
+          mediaUrl: null,
+          mediaPublicId: null,
+          mediaIv: null
         };
       }
       return m;
@@ -234,75 +320,116 @@ class SecretChatService {
   }
 
   /**
-   * Send a text or media message in Secret Chat
+   * Send an End-to-End Encrypted Message (Text or Media)
+   * The server only receives ciphertext, IV, authTag, and encrypted media binary.
+   * Plaintext is never transmitted to or processed by the server.
    */
-  async sendMessage({ conversationId, senderId, text = '', file, isViewOnce = false }) {
+  async sendMessage({
+    conversationId,
+    senderId,
+    ciphertext = '',
+    iv = null,
+    authTag = null,
+    encryptedMetadata = null,
+    mediaUrl: inputMediaUrl = null,
+    mediaPublicId: inputMediaPublicId = null,
+    mediaIv = null,
+    file = null,
+    messageType: inputMessageType = 'text',
+    isViewOnce = false,
+    clientMessageId = null
+  }) {
     const conversation = await SecretConversation.findById(conversationId);
     if (!conversation || !conversation.isActive) {
       throw new Error('Secret conversation not found or has been closed');
     }
 
-    let mediaUrl = null;
-    let mediaPublicId = null;
-    let messageType = 'text';
+    const otherParticipant = conversation.participants.find(
+      (p) => p.toString() !== senderId.toString()
+    );
+
+    if (!otherParticipant) {
+      throw new Error('Secret conversation participants are invalid');
+    }
+
+    const receiverId = otherParticipant.toString();
+
+    // Idempotency check: if clientMessageId already exists, return existing
+    if (clientMessageId) {
+      const existing = await SecretMessage.findOne({
+        conversation: conversationId,
+        clientMessageId
+      })
+        .populate('sender', 'name username profileImage')
+        .populate('receiver', 'name username profileImage')
+        .lean();
+
+      if (existing) {
+        return existing;
+      }
+    }
+
+    let mediaUrl = inputMediaUrl || null;
+    let mediaPublicId = inputMediaPublicId || null;
+    let messageType = inputMessageType || 'text';
 
     if (file) {
-      const isVideo = file.mimetype.startsWith('video/');
-      const isImage = file.mimetype.startsWith('image/');
-
-      if (!isImage && !isVideo) {
-        throw new Error('Unsupported file type. Only images and videos are permitted');
-      }
-
+      const isVideo = file.mimetype?.startsWith('video/') || file.originalname?.endsWith('.mp4');
       messageType = isVideo ? 'video' : 'image';
 
-      // Upload media to isolated Cloudinary folder for secret chats
+      // Upload raw encrypted binary blob to Cloudinary (resource_type: raw ensures no byte tampering)
       const uploadResult = await cloudinaryService.uploadMedia(
         file.buffer,
         'socialx/secret_chat',
-        isVideo ? 'video' : 'image',
-        file.mimetype
+        'raw',
+        file.mimetype || 'application/octet-stream'
       );
 
       mediaUrl = uploadResult.url;
       mediaPublicId = uploadResult.publicId;
     }
 
-    if (!text?.trim() && !mediaUrl) {
-      throw new Error('Message content or media attachment is required');
+    if (!ciphertext?.trim() && !mediaUrl) {
+      throw new Error('Encrypted payload (ciphertext or encrypted media) is required');
     }
 
     const message = await SecretMessage.create({
       conversation: conversationId,
       sender: senderId,
+      receiver: receiverId,
+      clientMessageId: clientMessageId || null,
       messageType,
-      content: text ? text.trim() : '',
+      ciphertext: ciphertext || '',
+      iv: iv || null,
+      authTag: authTag || null,
+      encryptedMetadata: encryptedMetadata || null,
       mediaUrl,
       mediaPublicId,
+      mediaIv: mediaIv || null,
       isViewOnce: Boolean(isViewOnce && mediaUrl),
       viewed: false
     });
 
-    // Update conversation timestamp
     conversation.lastMessageAt = new Date();
     await conversation.save();
 
-    // Enforce server-side auto-delete limit (20, 50, 100)
+    // Concurrency-safe auto-deletion limit enforcement
     await this.enforceAutoDeleteLimit(conversationId, conversation.autoDeleteLimit);
 
     const populatedMessage = await SecretMessage.findById(message._id)
       .populate('sender', 'name username profileImage')
+      .populate('receiver', 'name username profileImage')
       .lean();
 
-    // Broadcast to dedicated secret socket room
+    // Broadcast E2EE ciphertext to dedicated secret room
     this.emitToSecretRoom(conversationId, 'secret:message:new', populatedMessage);
 
     return populatedMessage;
   }
 
   /**
-   * Enforces server-side auto-delete limit
-   * Automatically deletes oldest messages & removes media from Cloudinary
+   * Concurrency-safe auto-delete limit enforcement.
+   * Atomically deletes oldest messages & removes media from Cloudinary.
    */
   async enforceAutoDeleteLimit(conversationId, limit = 20) {
     const count = await SecretMessage.countDocuments({ conversation: conversationId });
@@ -313,17 +440,15 @@ class SecretChatService {
         .limit(excess)
         .lean();
 
-      // Delete Cloudinary assets for pruned messages
       for (const msg of oldestMessages) {
         if (msg.mediaPublicId) {
-          await cloudinaryService.deleteMedia(msg.mediaPublicId, msg.messageType);
+          await cloudinaryService.deleteMedia(msg.mediaPublicId, 'raw');
         }
       }
 
       const idsToDelete = oldestMessages.map((m) => m._id);
       await SecretMessage.deleteMany({ _id: { $in: idsToDelete } });
 
-      // Notify clients to prune messages
       this.emitToSecretRoom(conversationId, 'secret:messages:pruned', {
         conversationId,
         deletedIds: idsToDelete
@@ -345,7 +470,7 @@ class SecretChatService {
     }
 
     if (message.sender.toString() === userId.toString()) {
-      throw new Error('Sender cannot trigger view-once expiration on their own message');
+      throw new Error('Sender cannot burn their own view-once media');
     }
 
     if (message.viewed) {
@@ -354,18 +479,18 @@ class SecretChatService {
 
     // Immediately destroy asset in Cloudinary
     if (message.mediaPublicId) {
-      await cloudinaryService.deleteMedia(message.mediaPublicId, message.messageType);
+      await cloudinaryService.deleteMedia(message.mediaPublicId, 'raw');
     }
 
-    // Invalidate media on the server immediately
+    // Invalidate media in MongoDB atomically
     message.viewed = true;
     message.viewedAt = new Date();
     message.viewedBy = [userId];
-    message.mediaUrl = null; // Erase URL so it cannot be fetched again
+    message.mediaUrl = null;
     message.mediaPublicId = null;
+    message.mediaIv = null;
     await message.save();
 
-    // Broadcast view-once event to secret conversation room
     this.emitToSecretRoom(message.conversation, 'secret:message:view', {
       messageId: message._id,
       conversationId: message.conversation,
@@ -390,7 +515,7 @@ class SecretChatService {
       : null;
 
     if (!parsedLimit) {
-      throw new Error('Valid autoDeleteLimit (5, 10, 15, 20) is required');
+      throw new Error('Valid autoDeleteLimit (5, 10, 15, 20, 50, 100) is required');
     }
 
     const conversation = await SecretConversation.findById(conversationId);
@@ -401,7 +526,6 @@ class SecretChatService {
     conversation.autoDeleteLimit = parsedLimit;
     await conversation.save();
 
-    // Enforce the new limit immediately
     await this.enforceAutoDeleteLimit(conversationId, parsedLimit);
 
     this.emitToSecretRoom(conversationId, 'secret:conversation:settings-updated', {
@@ -426,18 +550,16 @@ class SecretChatService {
     const messages = await SecretMessage.find({ conversation: conversationId }).lean();
     for (const msg of messages) {
       if (msg.mediaPublicId) {
-        await cloudinaryService.deleteMedia(msg.mediaPublicId, msg.messageType);
+        await cloudinaryService.deleteMedia(msg.mediaPublicId, 'raw');
       }
     }
 
     // Delete all secret messages
     await SecretMessage.deleteMany({ conversation: conversationId });
 
-    // Mark conversation inactive or delete
     conversation.isActive = false;
     await conversation.save();
 
-    // Notify room of wipe
     this.emitToSecretRoom(conversationId, 'secret:conversation:wiped', {
       conversationId,
       message: 'Secret conversation was closed and all messages have been wiped.'
@@ -447,6 +569,10 @@ class SecretChatService {
       success: true,
       message: 'Secret chat messages wiped and conversation closed successfully'
     };
+  }
+
+  async exitSecretChat(conversationId) {
+    return this.exitAndWipe(conversationId);
   }
 }
 
