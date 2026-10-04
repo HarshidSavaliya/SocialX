@@ -5,7 +5,11 @@ export const getNotifications = async (req, res, next) => {
   try {
     const { page = 1, limit = 20 } = req.query;
     const result = await notificationService.getUserNotifications(req.user._id, { page, limit });
-    res.json({ success: true, data: result });
+    res.json({
+      success: true,
+      data: result,
+      notifications: result?.notifications || []
+    });
   } catch (err) {
     next(err);
   }

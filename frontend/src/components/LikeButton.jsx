@@ -36,20 +36,23 @@ export default function LikeButton({
     setIsLoading(true);
 
     try {
+      let finalCount = nextCount;
       if (nextLiked) {
         const res = await likeService.likePost(postId);
         if (res && res.likesCount !== undefined) {
+          finalCount = res.likesCount;
           setLikesCount(res.likesCount);
         }
       } else {
         const res = await likeService.unlikePost(postId);
         if (res && res.likesCount !== undefined) {
+          finalCount = res.likesCount;
           setLikesCount(res.likesCount);
         }
       }
 
       if (onToggle) {
-        onToggle(nextLiked, nextCount);
+        onToggle(nextLiked, finalCount);
       }
     } catch (error) {
       // Revert optimistic UI on error

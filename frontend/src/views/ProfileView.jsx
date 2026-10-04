@@ -21,7 +21,7 @@ export default function ProfileView({
   const { isDark } = useTheme();
 
   // Target username to inspect
-  const targetUsername = username || authUser?.username;
+  const targetUsername = (username || authUser?.username || authUser?._id || authUser?.id || 'me')?.toString().replace(/^@+/, '').trim();
 
   const [profile, setProfile] = useState(null);
   const [posts, setPosts] = useState([]);
@@ -34,12 +34,15 @@ export default function ProfileView({
     let isMounted = true;
 
     const loadProfileData = async () => {
-      if (!targetUsername) return;
+      if (!targetUsername) {
+        setLoading(false);
+        return;
+      }
 
       try {
         setLoading(true);
         setError(null);
-        const profileData = await userService.getUserProfile(targetUsername);
+        const profileData = await userService.getUserProfile(encodeURIComponent(targetUsername));
         if (isMounted) {
           setProfile(profileData);
         }
@@ -51,11 +54,14 @@ export default function ProfileView({
     };
 
     const loadUserPosts = async () => {
-      if (!targetUsername) return;
+      if (!targetUsername) {
+        setLoadingPosts(false);
+        return;
+      }
 
       try {
         setLoadingPosts(true);
-        const res = await postService.getUserPosts(targetUsername, { page: 1, limit: 20 });
+        const res = await postService.getUserPosts(encodeURIComponent(targetUsername), { page: 1, limit: 20 });
         if (isMounted) {
           setPosts(res.posts);
         }
@@ -134,6 +140,8 @@ export default function ProfileView({
           }));
         }}
         onStartSecretChat={onStartSecretChat}
+        onOpenConversation={onOpenConversation}
+        onNavigateToProfile={onNavigateToProfile}
       />
 
       {/* Profile Navigation Tabs */}

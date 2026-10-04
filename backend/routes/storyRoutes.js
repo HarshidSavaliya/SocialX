@@ -15,6 +15,7 @@ const router = express.Router();
 
 // Story Feed: active stories from following / public users
 router.get('/feed', authenticateUser, getStoryFeed);
+router.get('/', authenticateUser, getStoryFeed);
 
 // Create Story (authenticated, with image or video media)
 router.post('/', authenticateUser, uploadSingleMedia, createStory);

@@ -13,6 +13,11 @@ export const secretChatService = {
     };
   },
 
+  async createSecretConversation(targetUserId, pin = '1234', autoDeleteLimit = 10) {
+    const res = await this.startSecretChat({ targetUserId, pin, autoDeleteLimit });
+    return res.conversation;
+  },
+
   async getSecretConversations() {
     const res = await apiClient.get('/secret-chats');
     return res.data.data;

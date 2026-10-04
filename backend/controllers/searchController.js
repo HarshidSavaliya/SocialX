@@ -20,7 +20,7 @@ export const searchUsers = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Search query (q) is required' });
     }
     const users = await searchService.searchUsers(q.trim(), req.user?._id || null, { limit });
-    res.json({ success: true, data: { users } });
+    res.json({ success: true, data: { users }, users });
   } catch (err) {
     next(err);
   }
@@ -33,7 +33,7 @@ export const searchPosts = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Search query (q) is required' });
     }
     const posts = await searchService.searchPosts(q.trim(), { limit, sort });
-    res.json({ success: true, data: { posts } });
+    res.json({ success: true, data: { posts }, posts });
   } catch (err) {
     next(err);
   }
@@ -46,7 +46,7 @@ export const searchHashtags = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Search query (q) is required' });
     }
     const hashtags = await searchService.searchHashtags(q.trim(), { limit });
-    res.json({ success: true, data: { hashtags } });
+    res.json({ success: true, data: { hashtags }, hashtags });
   } catch (err) {
     next(err);
   }

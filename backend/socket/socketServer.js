@@ -155,6 +155,21 @@ export const initSocket = (httpServer) => {
       }
     });
 
+    socket.on('secret:invite:send', ({ toUserId, conversationId }) => {
+      if (toUserId) {
+        emitToUser(toUserId, 'secret:invite:received', {
+          fromUser: {
+            _id: socket.user._id,
+            id: socket.user._id,
+            name: socket.user.name,
+            username: socket.user.username,
+            avatar: socket.user.avatar || socket.user.profileImage
+          },
+          conversationId
+        });
+      }
+    });
+
     // ==========================================
     // 3. VIDEO CALL SIGNALING (Phase 5: Agora RTC Control)
     // ==========================================

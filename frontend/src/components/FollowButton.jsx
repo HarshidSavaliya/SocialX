@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Check, UserPlus } from 'lucide-react';
 import { followService } from '../services/followService';
 import { useAuth } from '../context/AuthContext';
@@ -13,11 +13,17 @@ export default function FollowButton({
 }) {
   const { isAuthenticated, user } = useAuth();
   const { isDark } = useTheme();
-  const [isFollowing, setIsFollowing] = useState(initialFollowing);
+  const [isFollowing, setIsFollowing] = useState(Boolean(initialFollowing));
   const [isLoading, setIsLoading] = useState(false);
 
+  useEffect(() => {
+    setIsFollowing(Boolean(initialFollowing));
+  }, [initialFollowing]);
+
   // Don't show follow button for oneself
-  if (user && user.id === userId) {
+  const myId = (user?.id || user?._id)?.toString();
+  const targetId = userId?.toString();
+  if (myId && targetId && myId === targetId) {
     return null;
   }
 

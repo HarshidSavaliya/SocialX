@@ -21,6 +21,7 @@ export default function Header({
   onOpenAuth,
   onNavigateHome,
   onNavigateToMyProfile,
+  onNavigateToProfile,
   onSearchHashtag,
   onOpenSearch,
   onOpenNotifications,
@@ -46,8 +47,17 @@ export default function Header({
   const handleNotificationNavigate = (notification) => {
     if (notification.type === 'MESSAGE' && onOpenConversation && notification.relatedConversation) {
       onOpenConversation(notification.relatedConversation);
-    } else if (notification.type === 'FOLLOW' && onNavigateToMyProfile && notification.sender?.username) {
-      onNavigateToMyProfile(notification.sender.username);
+    } else if (notification.type === 'FOLLOW') {
+      const target =
+        notification.sender?.username ||
+        notification.sender?._id ||
+        notification.sender?.id ||
+        notification.sender;
+      if (target && onNavigateToProfile) {
+        onNavigateToProfile(target);
+      } else if (onOpenNotifications) {
+        onOpenNotifications();
+      }
     } else if (onOpenNotifications) {
       onOpenNotifications();
     }

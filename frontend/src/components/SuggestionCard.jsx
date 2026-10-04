@@ -10,7 +10,7 @@ export default function SuggestionCard({ user, onNavigate, onFollowToggle }) {
 
   return (
     <div
-      onClick={() => onNavigate && onNavigate(user.username)}
+      onClick={() => onNavigate && onNavigate(user.username || user._id || user.id)}
       className="flex items-center justify-between gap-3 cursor-pointer group py-1.5"
     >
       <div className="flex items-center gap-2.5 min-w-0">

@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Comment from '../models/Comment.js';
 import Post from '../models/Post.js';
 import notificationService from './notificationService.js';
@@ -10,6 +11,12 @@ class CommentService {
 
     if (text.trim().length > 1000) {
       throw new Error('Comment cannot exceed 1000 characters');
+    }
+
+    if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+      const err = new Error('Invalid post ID');
+      err.statusCode = 400;
+      throw err;
     }
 
     const post = await Post.findById(postId).select('author');
@@ -46,6 +53,12 @@ class CommentService {
   }
 
   async deleteComment({ commentId, userId }) {
+    if (!commentId || !mongoose.Types.ObjectId.isValid(commentId)) {
+      const err = new Error('Invalid comment ID');
+      err.statusCode = 400;
+      throw err;
+    }
+
     const comment = await Comment.findById(commentId).select('author post');
     if (!comment) {
       throw new Error('Comment not found');
@@ -83,6 +96,10 @@ class CommentService {
   }
 
   async getCommentsByPost(postId) {
+    if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+      return [];
+    }
+
     const comments = await Comment.find({ post: postId })
       .sort({ createdAt: 1 })
       .populate('author', 'name username profileImage')

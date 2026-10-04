@@ -48,27 +48,29 @@ export const logout = async (req, res) => {
 
 export const getMe = async (req, res, next) => {
   try {
+    const userData = {
+      id: req.user._id,
+      _id: req.user._id,
+      name: req.user.name,
+      username: req.user.username,
+      email: req.user.email,
+      bio: req.user.bio,
+      title: req.user.title || '',
+      avatar: req.user.avatar || req.user.profileImage,
+      profileImage: req.user.profileImage || req.user.avatar,
+      coverImage: req.user.coverImage,
+      location: req.user.location,
+      website: req.user.website,
+      followersCount: req.user.followersCount,
+      followingCount: req.user.followingCount,
+      postsCount: req.user.postsCount,
+      role: req.user.role,
+      accountStatus: req.user.accountStatus
+    };
     res.status(200).json({
       success: true,
-      data: {
-        id: req.user._id,
-        _id: req.user._id,
-        name: req.user.name,
-        username: req.user.username,
-        email: req.user.email,
-        bio: req.user.bio,
-        title: req.user.title || '',
-        avatar: req.user.avatar || req.user.profileImage,
-        profileImage: req.user.profileImage || req.user.avatar,
-        coverImage: req.user.coverImage,
-        location: req.user.location,
-        website: req.user.website,
-        followersCount: req.user.followersCount,
-        followingCount: req.user.followingCount,
-        postsCount: req.user.postsCount,
-        role: req.user.role,
-        accountStatus: req.user.accountStatus
-      }
+      data: userData,
+      user: userData
     });
   } catch (error) {
     next(error);

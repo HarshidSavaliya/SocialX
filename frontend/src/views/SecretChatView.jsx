@@ -13,12 +13,17 @@ import {
   ArrowLeft,
   Image,
   X,
-  Loader2
+  Loader2,
+  Users,
+  UserPlus,
+  Radio,
+  Sparkles
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useSocket } from '../context/SocketContext';
 import { secretChatService } from '../services/secretChatService';
+import { userService } from '../services/userService';
 import { getUserAvatar, handleImageError } from '../utils/avatar';
 
 export default function SecretChatView({
@@ -27,7 +32,7 @@ export default function SecretChatView({
 }) {
   const { user, isAuthenticated } = useAuth();
   const { isDark } = useTheme();
-  const { socket } = useSocket() || {};
+  const { socket, onlineUsers = [] } = useSocket() || {};
 
   // Conversations list & active selection
   const [conversations, setConversations] = useState([]);
@@ -56,6 +61,24 @@ export default function SecretChatView({
   const [showExitModal, setShowExitModal] = useState(false);
   const [isWiping, setIsWiping] = useState(false);
   const [viewOnceActiveItem, setViewOnceActiveItem] = useState(null); // { id, url, type, countdown }
+
+  // Master Secret Mode PIN / Password state on entry
+  const [isMasterUnlocked, setIsMasterUnlocked] = useState(false);
+  const [masterPinInput, setMasterPinInput] = useState('');
+  const [masterPinError, setMasterPinError] = useState('');
+  const [verifyingMasterPin, setVerifyingMasterPin] = useState(false);
+
+  // Online friends & invite states
+  const [sidebarTab, setSidebarTab] = useState('vaults'); // 'vaults' | 'friends'
+  const [friendsList, setFriendsList] = useState([]);
+  const [loadingFriends, setLoadingFriends] = useState(false);
+  const [invitingId, setInvitingId] = useState(null);
+  const [secretToast, setSecretToast] = useState('');
+
+  const showSecretToast = useCallback((text) => {
+    setSecretToast(text);
+    setTimeout(() => setSecretToast(''), 3000);
+  }, []);
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -100,6 +123,151 @@ export default function SecretChatView({
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
+
+  // Load friends to detect online status and allow Secret Mode invitations
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    let isMounted = true;
+    const fetchFriends = async () => {
+      try {
+        setLoadingFriends(true);
+        const myId = (user.id || user._id)?.toString();
+        const [followingRes, suggestionsRes] = await Promise.allSettled([
+          userService.getFollowing(myId),
+          userService.getSuggestions(20)
+        ]);
+
+        const listA = followingRes.status === 'fulfilled' && Array.isArray(followingRes.value) ? followingRes.value : [];
+        const listB = suggestionsRes.status === 'fulfilled' && Array.isArray(suggestionsRes.value) ? suggestionsRes.value : [];
+
+        const map = new Map();
+        [...listA, ...listB].forEach((u) => {
+          const uId = (u._id || u.id)?.toString();
+          if (uId && uId !== myId) {
+            map.set(uId, u);
+          }
+        });
+
+        if (isMounted) setFriendsList(Array.from(map.values()));
+      } catch (err) {
+        console.warn('Failed to load friends for secret mode:', err.message);
+      } finally {
+        if (isMounted) setLoadingFriends(false);
+      }
+    };
+
+    fetchFriends();
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthenticated, user]);
+
+  // Compute online friends & secret mode status
+  const onlineFriends = friendsList.map((f) => {
+    const friendId = (f._id || f.id)?.toString();
+    const isOnline = onlineUsers?.some((uid) => uid?.toString() === friendId);
+    const existingConv = conversations.find((c) =>
+      c.participants?.some((p) => (p._id || p.id)?.toString() === friendId)
+    );
+    return {
+      ...f,
+      friendId,
+      isOnline,
+      isInSecretMode: Boolean(existingConv),
+      secretConv: existingConv
+    };
+  }).filter((f) => f.isOnline);
+
+  const inSecretCount = onlineFriends.filter((f) => f.isInSecretMode).length;
+  const notInSecretCount = onlineFriends.filter((f) => !f.isInSecretMode).length;
+
+  const handleMasterPinDigit = (digit) => {
+    if (masterPinInput.length < 6) {
+      setMasterPinInput((prev) => prev + digit);
+      setMasterPinError('');
+    }
+  };
+
+  const handleUnlockMasterVault = (e) => {
+    if (e) e.preventDefault();
+    if (masterPinInput.length < 4) {
+      setMasterPinError('PIN must be at least 4 digits');
+      return;
+    }
+    setIsMasterUnlocked(true);
+    setMasterPinError('');
+
+    if (activeConvId) {
+      secretChatService
+        .verifyPin(activeConvId, masterPinInput)
+        .then((res) => {
+          setSecretTokens((prev) => ({ ...prev, [activeConvId]: res.secretToken }));
+          setActiveConv(res.conversation);
+        })
+        .catch(() => {});
+    }
+  };
+
+  const handleInviteFriend = async (friend) => {
+    try {
+      setInvitingId(friend.friendId);
+      let targetConv = friend.secretConv;
+
+      if (!targetConv) {
+        const res = await secretChatService.startSecretChat({
+          targetUserId: friend.friendId,
+          pin: '1234',
+          autoDeleteLimit: 10
+        });
+        targetConv = res.conversation;
+        if (res.secretToken) {
+          setSecretTokens((prev) => ({ ...prev, [targetConv._id]: res.secretToken }));
+        }
+        await loadConversations();
+      }
+
+      if (socket && targetConv?._id) {
+        socket.emit('secret:invite:send', {
+          toUserId: friend.friendId,
+          conversationId: targetConv._id
+        });
+      }
+
+      if (targetConv?._id) {
+        setActiveConvId(targetConv._id);
+        setActiveConv(targetConv);
+
+        if (!secretTokens[targetConv._id]) {
+          try {
+            const res = await secretChatService.verifyPin(targetConv._id, '1234');
+            setSecretTokens((prev) => ({ ...prev, [targetConv._id]: res.secretToken }));
+          } catch (e) {
+            // Already unlocked or customized pin
+          }
+        }
+      }
+
+      showSecretToast(`Invited @${friend.username} to Secret Chat! (Default PIN: 1234)`);
+    } catch (err) {
+      alert(err.message || 'Failed to start secret chat');
+    } finally {
+      setInvitingId(null);
+    }
+  };
+
+  // Listen for incoming secret invites while in secret chat view
+  useEffect(() => {
+    if (!socket) return;
+    const handleSecretInviteReceived = ({ fromUser }) => {
+      showSecretToast(`@${fromUser?.username || 'A friend'} invited you to Secret Chat! (Default PIN: 1234)`);
+      loadConversations();
+    };
+
+    socket.on('secret:invite:received', handleSecretInviteReceived);
+    return () => {
+      socket.off('secret:invite:received', handleSecretInviteReceived);
+    };
+  }, [socket, loadConversations, showSecretToast]);
 
   // Handle active conversation switch
   const handleSelectConversation = (conv) => {
@@ -419,13 +587,142 @@ export default function SecretChatView({
     (p) => p._id !== user?.id && p._id?.toString() !== user?.id?.toString()
   );
 
+  // MASTER SECRET VAULT LOCK SCREEN
+  if (!isMasterUnlocked) {
+    return (
+      <div className="h-[calc(100vh-6.5rem)] rounded-3xl overflow-hidden flex flex-col items-center justify-center bg-[#08090e] border border-emerald-500/20 shadow-2xl relative p-6">
+        {/* Background radial glow */}
+        <div className="absolute inset-0 bg-radial from-emerald-950/30 via-transparent to-transparent pointer-events-none" />
+
+        <div className="max-w-xs w-full flex flex-col items-center text-center relative z-10">
+          <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-4 shadow-xl shadow-emerald-500/10 animate-pulse">
+            <Lock className="w-8 h-8" />
+          </div>
+
+          <h2 className="text-xl font-black text-white tracking-tight">
+            Secret Mode Locked
+          </h2>
+          <p className="text-xs text-slate-400 mt-1 mb-6 leading-relaxed">
+            Enter your security password or PIN to unlock Secret Mode and view online friends.
+          </p>
+
+          {/* PIN Bullets Display */}
+          <div className="flex gap-3 mb-6">
+            {[0, 1, 2, 3, 4, 5].slice(0, Math.max(4, masterPinInput.length)).map((_, idx) => (
+              <div
+                key={idx}
+                className={`w-3.5 h-3.5 rounded-full transition-all duration-200 ${
+                  masterPinError
+                    ? 'bg-rose-500 scale-110 shadow-sm shadow-rose-500'
+                    : masterPinInput.length > idx
+                    ? 'bg-emerald-400 scale-110 shadow-sm shadow-emerald-400'
+                    : 'bg-white/20'
+                }`}
+              />
+            ))}
+          </div>
+
+          {/* Error feedback */}
+          {masterPinError && (
+            <div className="mb-4 text-xs font-bold text-rose-400 flex items-center gap-1.5 animate-bounce">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>{masterPinError}</span>
+            </div>
+          )}
+
+          {/* Numeric Keypad */}
+          <div className="grid grid-cols-3 gap-2.5 w-full mb-5">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+              <button
+                key={num}
+                type="button"
+                onClick={() => handleMasterPinDigit(num.toString())}
+                className="h-11 rounded-2xl bg-white/[0.04] hover:bg-white/[0.1] active:bg-emerald-500/20 text-white font-semibold text-lg border border-white/5 transition-all shadow-xs cursor-pointer"
+              >
+                {num}
+              </button>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => setMasterPinInput('')}
+              className="h-11 rounded-2xl bg-white/[0.02] text-slate-400 text-xs font-semibold hover:bg-white/[0.06] transition-all cursor-pointer"
+            >
+              Clear
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleMasterPinDigit('0')}
+              className="h-11 rounded-2xl bg-white/[0.04] hover:bg-white/[0.1] text-white font-semibold text-lg border border-white/5 transition-all cursor-pointer"
+            >
+              0
+            </button>
+
+            <button
+              type="button"
+              onClick={handleUnlockMasterVault}
+              disabled={verifyingMasterPin || masterPinInput.length < 4}
+              className="h-11 rounded-2xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 text-black font-bold text-xs transition-all flex items-center justify-center shadow-md shadow-emerald-500/20 cursor-pointer"
+            >
+              {verifyingMasterPin ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Unlock'}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between w-full text-[11px] text-slate-400 px-1 mb-5">
+            <span>PIN: 4-6 digits</span>
+            <button
+              type="button"
+              onClick={() => {
+                setMasterPinInput('1234');
+                setTimeout(() => {
+                  setIsMasterUnlocked(true);
+                  if (activeConvId) {
+                    secretChatService
+                      .verifyPin(activeConvId, '1234')
+                      .then((res) => {
+                        setSecretTokens((prev) => ({ ...prev, [activeConvId]: res.secretToken }));
+                        setActiveConv(res.conversation);
+                      })
+                      .catch(() => {});
+                  }
+                }, 100);
+              }}
+              className="text-emerald-400 hover:underline font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <Fingerprint className="w-3.5 h-3.5" />
+              <span>Demo PIN (1234)</span>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={onExit}
+            className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Return to Feed</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-[calc(100vh-6.5rem)] rounded-3xl overflow-hidden flex flex-col lg:flex-row bg-[#08090e] border border-emerald-500/20 shadow-2xl relative">
       {/* Background radial glow */}
       <div className="absolute inset-0 bg-radial from-emerald-950/20 via-transparent to-transparent pointer-events-none" />
 
+      {/* Secret Toast Notification */}
+      {secretToast && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-emerald-500 text-stone-950 font-bold text-xs shadow-xl animate-in fade-in slide-in-from-top-2 flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4" />
+          <span>{secretToast}</span>
+        </div>
+      )}
+
       {/* ======================================================== */}
-      {/* SIDEBAR: Active Secret Conversations List                */}
+      {/* SIDEBAR: Active Secret Conversations List & Friends      */}
       {/* ======================================================== */}
       <div className="w-full lg:w-72 border-r border-emerald-500/15 flex flex-col bg-[#0b0d14]/90 backdrop-blur-md">
         <div className="p-4 border-b border-emerald-500/15 flex items-center justify-between">
@@ -433,7 +730,7 @@ export default function SecretChatView({
             <div className="p-1.5 rounded-xl bg-emerald-500/20 text-emerald-400">
               <Lock className="w-4 h-4" />
             </div>
-            <span className="font-bold text-xs tracking-tight text-white">Secret Vaults</span>
+            <span className="font-bold text-xs tracking-tight text-white">Secret Mode</span>
           </div>
           <button
             onClick={onExit}
@@ -444,75 +741,299 @@ export default function SecretChatView({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {loadingConvs ? (
-            <div className="p-4 space-y-3">
-              {[1, 2].map((i) => (
-                <div key={i} className="h-12 rounded-2xl bg-white/5 animate-pulse" />
-              ))}
-            </div>
-          ) : conversations.length === 0 ? (
-            <div className="p-6 text-center text-xs text-slate-500">
-              <Lock className="w-6 h-6 mx-auto mb-2 text-slate-600" />
-              <span>No secret chats active. Visit a profile to start one!</span>
-            </div>
-          ) : (
-            conversations.map((c) => {
-              const other = c.participants?.find((p) => p._id !== user?.id);
-              const isSelected = c._id === activeConvId;
-              const isUnlockedHere = Boolean(secretTokens[c._id]);
+        {/* Tab switch: Vaults vs Online Friends */}
+        <div className="p-2 border-b border-emerald-500/15">
+          <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-white/[0.04] text-[11px] font-bold">
+            <button
+              type="button"
+              onClick={() => setSidebarTab('vaults')}
+              className={`py-1.5 rounded-lg transition-all ${
+                sidebarTab === 'vaults'
+                  ? 'bg-emerald-500 text-black shadow-xs'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Vaults ({conversations.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidebarTab('friends')}
+              className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+                sidebarTab === 'friends'
+                  ? 'bg-emerald-500 text-black shadow-xs'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Radio className="w-3 h-3 text-emerald-400" />
+              <span>Online ({onlineFriends.length})</span>
+            </button>
+          </div>
+        </div>
 
-              return (
-                <button
-                  key={c._id}
-                  onClick={() => handleSelectConversation(c)}
-                  className={`w-full p-3 rounded-2xl flex items-center justify-between text-left transition-all ${
-                    isSelected
-                      ? 'bg-emerald-500/15 border border-emerald-500/30 text-white'
-                      : 'hover:bg-white/5 text-slate-400'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <img
-                      src={getUserAvatar(other)}
-                      onError={(e) => handleImageError(e, other?.name)}
-                      alt={other?.name}
-                      className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-                    />
-                    <div className="truncate">
-                      <span className="font-bold text-xs block text-slate-200 truncate">
-                        {other?.name || 'Private Contact'}
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {sidebarTab === 'vaults' ? (
+            loadingConvs ? (
+              <div className="p-4 space-y-3">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-12 rounded-2xl bg-white/5 animate-pulse" />
+                ))}
+              </div>
+            ) : conversations.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-500">
+                <Lock className="w-6 h-6 mx-auto mb-2 text-slate-600" />
+                <span>No active secret chats. View online friends to start one!</span>
+              </div>
+            ) : (
+              conversations.map((c) => {
+                const other = c.participants?.find((p) => p._id !== user?.id);
+                const isSelected = c._id === activeConvId;
+                const isUnlockedHere = Boolean(secretTokens[c._id]);
+
+                return (
+                  <button
+                    key={c._id}
+                    onClick={() => handleSelectConversation(c)}
+                    className={`w-full p-3 rounded-2xl flex items-center justify-between text-left transition-all ${
+                      isSelected
+                        ? 'bg-emerald-500/15 border border-emerald-500/30 text-white'
+                        : 'hover:bg-white/5 text-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img
+                        src={getUserAvatar(other)}
+                        onError={(e) => handleImageError(e, other?.name)}
+                        alt={other?.name}
+                        className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                      />
+                      <div className="truncate">
+                        <span className="font-bold text-xs block text-slate-200 truncate">
+                          {other?.name || 'Private Contact'}
+                        </span>
+                        <span className="text-[10px] text-slate-500">@{other?.username}</span>
+                      </div>
+                    </div>
+
+                    {isUnlockedHere ? (
+                      <span className="text-[10px] font-bold text-emerald-400 px-1.5 py-0.5 rounded-full bg-emerald-500/10">
+                        Unlocked
                       </span>
-                      <span className="text-[10px] text-slate-500">@{other?.username}</span>
+                    ) : (
+                      <Lock className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
+                    )}
+                  </button>
+                );
+              })
+            )
+          ) : (
+            /* Online Friends List Tab in Sidebar */
+            loadingFriends ? (
+              <div className="p-4 space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-11 rounded-2xl bg-white/5 animate-pulse" />
+                ))}
+              </div>
+            ) : onlineFriends.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-500">
+                <Users className="w-6 h-6 mx-auto mb-2 text-slate-600" />
+                <span>No friends currently online.</span>
+              </div>
+            ) : (
+              onlineFriends.map((f) => (
+                <div
+                  key={f.friendId}
+                  className="p-2.5 rounded-2xl bg-white/[0.03] border border-white/5 flex items-center justify-between gap-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="relative flex-shrink-0">
+                      <img
+                        src={getUserAvatar(f)}
+                        onError={(e) => handleImageError(e, f?.name)}
+                        alt={f.name}
+                        className="w-8 h-8 rounded-full object-cover"
+                      />
+                      <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-black" />
+                    </div>
+                    <div className="truncate">
+                      <span className="font-bold text-xs block text-slate-200 truncate">{f.name}</span>
+                      <span className="text-[10px] text-slate-500 truncate block">@{f.username}</span>
                     </div>
                   </div>
-
-                  {isUnlockedHere ? (
-                    <span className="text-[10px] font-bold text-emerald-400 px-1.5 py-0.5 rounded-full bg-emerald-500/10">
-                      Unlocked
-                    </span>
+                  {f.isInSecretMode ? (
+                    <button
+                      onClick={() => handleSelectConversation(f.secretConv)}
+                      className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition-all flex-shrink-0"
+                    >
+                      Open
+                    </button>
                   ) : (
-                    <Lock className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
+                    <button
+                      onClick={() => handleInviteFriend(f)}
+                      disabled={invitingId === f.friendId}
+                      className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-500 hover:bg-emerald-400 text-black transition-all flex items-center gap-1 flex-shrink-0"
+                    >
+                      {invitingId === f.friendId ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <UserPlus className="w-3 h-3" />
+                      )}
+                      <span>Invite</span>
+                    </button>
                   )}
-                </button>
-              );
-            })
+                </div>
+              ))
+            )
           )}
         </div>
       </div>
 
       {/* ======================================================== */}
-      {/* MAIN VAULT AREA: PIN SCREEN OR UNLOCKED CHAT             */}
+      {/* MAIN VAULT AREA: ONLINE FRIENDS RADAR OR PIN OR CHAT     */}
       {/* ======================================================== */}
       <div className="flex-1 flex flex-col relative z-10 min-w-0 overflow-hidden">
-        {/* CASE A: NO CONVERSATION SELECTED */}
+        {/* CASE A: NO CONVERSATION SELECTED -> SHOW ONLINE FRIENDS IN SECRET MODE */}
         {!activeConvId ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-slate-400">
-            <Lock className="w-12 h-12 text-slate-600 mb-3" />
-            <h3 className="text-base font-bold text-white">Select a Secret Chat</h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Choose an active secret conversation or start one from any user's profile.
-            </p>
+          <div className="flex-1 flex flex-col p-6 overflow-y-auto">
+            <div className="max-w-2xl mx-auto w-full space-y-6">
+              {/* Radar Banner */}
+              <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-950/40 to-black/60 border border-emerald-500/30 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-xl shadow-emerald-500/10 flex-shrink-0 animate-pulse">
+                    <Radio className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-black text-white">Online Friends in Secret Mode</h2>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        Live Radar
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Connect with online friends or invite them to ephemeral, PIN-isolated secret chats.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right flex-shrink-0">
+                  <span className="text-2xl font-black text-emerald-400">{onlineFriends.length}</span>
+                  <span className="block text-[10px] text-slate-500">Friends Online</span>
+                </div>
+              </div>
+
+              {/* Online Friends List */}
+              {loadingFriends ? (
+                <div className="p-8 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                  <span>Scanning online network...</span>
+                </div>
+              ) : onlineFriends.length === 0 ? (
+                <div className="p-8 rounded-3xl bg-white/[0.02] border border-white/5 text-center text-xs text-slate-500">
+                  <Users className="w-8 h-8 mx-auto mb-2 text-slate-600" />
+                  <p className="font-semibold text-slate-300">No friends currently online</p>
+                  <p className="mt-1">Follow creators or invite your friends to start encrypted secret chats.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Category 1: Online in Secret Mode */}
+                  {inSecretCount > 0 && (
+                    <div>
+                      <h3 className="text-xs font-bold text-emerald-400 tracking-wider uppercase mb-2 flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>In Secret Mode ({inSecretCount})</span>
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {onlineFriends
+                          .filter((f) => f.isInSecretMode)
+                          .map((f) => (
+                            <div
+                              key={f.friendId}
+                              className="p-3.5 rounded-2xl bg-emerald-500/[0.07] border border-emerald-500/25 flex items-center justify-between gap-3"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="relative">
+                                  <img
+                                    src={getUserAvatar(f)}
+                                    onError={(e) => handleImageError(e, f?.name)}
+                                    alt={f.name}
+                                    className="w-10 h-10 rounded-2xl object-cover ring-1 ring-emerald-500/40"
+                                  />
+                                  <span className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 ring-2 ring-[#08090e]" />
+                                </div>
+                                <div className="min-w-0">
+                                  <h4 className="text-xs font-bold text-white truncate">{f.name}</h4>
+                                  <p className="text-[11px] text-slate-400 truncate">@{f.username}</p>
+                                  <span className="inline-block mt-0.5 text-[10px] font-bold text-emerald-400">
+                                    🔒 Vault Active
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleSelectConversation(f.secretConv)}
+                                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500 text-black hover:bg-emerald-400 transition-colors flex-shrink-0 cursor-pointer"
+                              >
+                                Open
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Category 2: Online in Normal Mode (Invite to Secret Mode) */}
+                  {notInSecretCount > 0 && (
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-400 tracking-wider uppercase mb-2 flex items-center gap-1.5">
+                        <Radio className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Online Friends (Not in Secret Mode yet)</span>
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {onlineFriends
+                          .filter((f) => !f.isInSecretMode)
+                          .map((f) => (
+                            <div
+                              key={f.friendId}
+                              className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-between gap-3 hover:border-white/20 transition-all"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="relative">
+                                  <img
+                                    src={getUserAvatar(f)}
+                                    onError={(e) => handleImageError(e, f?.name)}
+                                    alt={f.name}
+                                    className="w-10 h-10 rounded-2xl object-cover"
+                                  />
+                                  <span className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 ring-2 ring-[#08090e]" />
+                                </div>
+                                <div className="min-w-0">
+                                  <h4 className="text-xs font-bold text-white truncate">{f.name}</h4>
+                                  <p className="text-[11px] text-slate-400 truncate">@{f.username}</p>
+                                  <span className="inline-block mt-0.5 text-[10px] text-amber-400/90 font-medium">
+                                    🟢 Online (Normal Mode)
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleInviteFriend(f)}
+                                disabled={invitingId === f.friendId}
+                                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 transition-colors flex items-center gap-1.5 flex-shrink-0 cursor-pointer"
+                              >
+                                {invitingId === f.friendId ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <UserPlus className="w-3.5 h-3.5" />
+                                )}
+                                <span>Invite to Secret</span>
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         ) : !isUnlocked ? (
           /* CASE B: PIN VERIFICATION SCREEN */
@@ -644,13 +1165,14 @@ export default function SecretChatView({
                   <Clock className="w-3.5 h-3.5 text-amber-400" />
                   <span className="text-[11px] text-slate-400 hidden sm:inline">Limit:</span>
                   <select
-                    value={activeConv?.autoDeleteLimit || 20}
+                    value={activeConv?.autoDeleteLimit || 10}
                     onChange={(e) => handleUpdateLimit(Number(e.target.value))}
                     className="bg-transparent outline-none cursor-pointer text-amber-400 font-bold text-xs"
                   >
+                    <option value={5} className="bg-[#12141c] text-white">5 msgs</option>
+                    <option value={10} className="bg-[#12141c] text-white">10 msgs</option>
+                    <option value={15} className="bg-[#12141c] text-white">15 msgs</option>
                     <option value={20} className="bg-[#12141c] text-white">20 msgs</option>
-                    <option value={50} className="bg-[#12141c] text-white">50 msgs</option>
-                    <option value={100} className="bg-[#12141c] text-white">100 msgs</option>
                   </select>
                 </div>
 

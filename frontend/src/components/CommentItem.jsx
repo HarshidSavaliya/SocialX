@@ -5,7 +5,7 @@ import { useTheme } from '../context/ThemeContext';
 import { formatRelativeTime } from '../utils/dateTime';
 import { getUserAvatar, handleImageError } from '../utils/avatar';
 
-export default function CommentItem({ comment, postOwnerId, onDelete }) {
+export default function CommentItem({ comment, postOwnerId, onDelete, onNavigateToProfile }) {
   const { user } = useAuth();
   const { isDark } = useTheme();
   const [isDeleting, setIsDeleting] = useState(false);
@@ -32,21 +32,36 @@ export default function CommentItem({ comment, postOwnerId, onDelete }) {
   const authorUsername = comment.author?.username ? `@${comment.author.username}` : '';
   const authorAvatar = getUserAvatar(comment.author);
 
+  const handleAuthorClick = () => {
+    const target =
+      comment.author?.username ||
+      comment.author?._id ||
+      comment.author?.id ||
+      comment.author;
+    if (target && onNavigateToProfile) {
+      onNavigateToProfile(target);
+    }
+  };
+
   return (
     <div className="flex gap-2.5 items-start text-xs group/comment">
       <img
         src={authorAvatar}
         onError={(e) => handleImageError(e, authorName)}
         alt={authorName}
-        className="w-7 h-7 rounded-full object-cover mt-0.5 flex-shrink-0 ring-1 ring-slate-200 dark:ring-white/10"
+        onClick={handleAuthorClick}
+        className="w-7 h-7 rounded-full object-cover mt-0.5 flex-shrink-0 ring-1 ring-slate-200 dark:ring-white/10 cursor-pointer hover:opacity-80 transition-opacity"
       />
       <div
         className={`flex-1 p-3 rounded-2xl transition-all ${isDark ? 'bg-white/[0.04]' : 'bg-slate-100/80'
           }`}
       >
         <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="font-bold text-slate-900 dark:text-white">
+          <div
+            onClick={handleAuthorClick}
+            className="flex items-center gap-1.5 flex-wrap cursor-pointer group/author"
+          >
+            <span className="font-bold text-slate-900 dark:text-white group-hover/author:underline">
               {authorName}
             </span>
             <span className="text-[10px] text-slate-400">{authorUsername}</span>

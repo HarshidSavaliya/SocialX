@@ -9,7 +9,8 @@ export const getUserProfile = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: profile
+      data: profile,
+      user: profile
     });
   } catch (error) {
     next(error);
@@ -80,7 +81,8 @@ export const getSuggestions = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: suggestions
+      data: suggestions,
+      users: suggestions
     });
   } catch (error) {
     next(error);

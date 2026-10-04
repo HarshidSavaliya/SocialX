@@ -83,7 +83,12 @@ export default function PostCard({
       {/* Post Top Header */}
       <div className="p-4 sm:p-5 pb-3 flex items-start justify-between gap-3">
         <div
-          onClick={() => onNavigateToProfile && post.author?.username && onNavigateToProfile(post.author.username)}
+          onClick={() => {
+            if (onNavigateToProfile) {
+              const target = post.author?.username || post.author?.name || post.author?._id || post.author?.id || post.author;
+              if (target) onNavigateToProfile(target);
+            }
+          }}
           className="flex items-center gap-3 cursor-pointer group/author"
         >
           <img
@@ -287,6 +292,7 @@ export default function PostCard({
           <CommentSection
             postId={postId}
             postOwnerId={authorId}
+            onNavigateToProfile={onNavigateToProfile}
             onCommentCountChange={(newCount) => {
               setCommentsCount(newCount);
               if (onPostUpdated) {

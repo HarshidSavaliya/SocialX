@@ -8,7 +8,8 @@ import CommentItem from './CommentItem';
 export default function CommentSection({
   postId,
   postOwnerId,
-  onCommentCountChange
+  onCommentCountChange,
+  onNavigateToProfile
 }) {
   const { user, isAuthenticated } = useAuth();
   const { isDark } = useTheme();
@@ -21,11 +22,44 @@ export default function CommentSection({
   useEffect(() => {
     let isMounted = true;
     const fetchComments = async () => {
+      // Mock reel fallback
+      if (typeof postId === 'string' && postId.startsWith('reel_')) {
+        if (isMounted) {
+          setComments([
+            {
+              _id: 'mock_c1_' + postId,
+              text: 'The cinematography in this reel is incredible! 🌊🔥',
+              author: {
+                _id: '6abb5dd434c7b0523c4719aa',
+                name: 'Alex Rivera',
+                username: 'alexrivera',
+                profileImage: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80'
+              },
+              createdAt: new Date(Date.now() - 3600000).toISOString()
+            },
+            {
+              _id: 'mock_c2_' + postId,
+              text: 'Pure visual masterpiece. Love the vibes! ✨',
+              author: {
+                _id: '6abb5dd434c7b0523c4719ac',
+                name: 'Devon Lane',
+                username: 'devonlane',
+                profileImage: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80'
+              },
+              createdAt: new Date(Date.now() - 1800000).toISOString()
+            }
+          ]);
+          setError(null);
+          setLoading(false);
+        }
+        return;
+      }
+
       try {
         setLoading(true);
         const data = await commentService.getComments(postId);
         if (isMounted) {
-          setComments(data);
+          setComments(Array.isArray(data) ? data : []);
           setError(null);
         }
       } catch (err) {
@@ -42,20 +76,44 @@ export default function CommentSection({
   }, [postId]);
 
   const handleAddComment = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     if (!isAuthenticated) {
-      alert('Please log in to post a comment.');
+      setError('Please log in to post a comment.');
       return;
     }
 
     if (!text.trim()) return;
 
     if (text.trim().length > 1000) {
-      alert('Comment exceeds 1000 characters limit.');
+      setError('Comment exceeds 1000 characters limit.');
       return;
     }
 
     setIsSubmitting(true);
+    setError(null);
+
+    // Mock reel support
+    if (typeof postId === 'string' && postId.startsWith('reel_')) {
+      const mockComment = {
+        _id: 'mock_c_' + Date.now(),
+        text: text.trim(),
+        author: {
+          _id: user?._id || user?.id || 'me',
+          name: user?.name || 'You',
+          username: user?.username || 'you',
+          profileImage: user?.profileImage || user?.avatar
+        },
+        createdAt: new Date().toISOString()
+      };
+      setComments((prev) => [...prev, mockComment]);
+      setText('');
+      if (onCommentCountChange) {
+        onCommentCountChange(comments.length + 1);
+      }
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       const newComment = await commentService.addComment(postId, text.trim());
       setComments((prev) => [...prev, newComment]);
@@ -64,17 +122,28 @@ export default function CommentSection({
         onCommentCountChange(comments.length + 1);
       }
     } catch (err) {
-      alert(err.message || 'Could not post comment.');
+      setError(err.message || 'Could not post comment.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleDeleteComment = async (commentId) => {
-    await commentService.deleteComment(commentId);
-    setComments((prev) => prev.filter((c) => (c._id || c.id) !== commentId));
-    if (onCommentCountChange) {
-      onCommentCountChange(Math.max(0, comments.length - 1));
+    if (typeof commentId === 'string' && commentId.startsWith('mock_c')) {
+      setComments((prev) => prev.filter((c) => (c._id || c.id) !== commentId));
+      if (onCommentCountChange) {
+        onCommentCountChange(Math.max(0, comments.length - 1));
+      }
+      return;
+    }
+    try {
+      await commentService.deleteComment(commentId);
+      setComments((prev) => prev.filter((c) => (c._id || c.id) !== commentId));
+      if (onCommentCountChange) {
+        onCommentCountChange(Math.max(0, comments.length - 1));
+      }
+    } catch (err) {
+      console.warn('Could not delete comment:', err.message);
     }
   };
 
@@ -100,6 +169,7 @@ export default function CommentSection({
               comment={comment}
               postOwnerId={postOwnerId}
               onDelete={handleDeleteComment}
+              onNavigateToProfile={onNavigateToProfile}
             />
           ))}
         </div>

@@ -1,7 +1,7 @@
 import dns from 'dns';
 import mongoose from 'mongoose';
 import User from '../models/User.js';
-import { seedDefaultDataIfEmpty } from './seedData.js';
+import { seedDefaultDataIfEmpty, seedVideoReelsIfEmpty, syncPostCounters } from './seedData.js';
 
 // Configure DNS resolution for Node.js (uses public DNS to fix Windows querySrv ECONNREFUSED)
 try {
@@ -97,6 +97,8 @@ export const connectDB = async () => {
     try {
       // Auto-populate demo users & posts if database is fresh/empty
       await seedDefaultDataIfEmpty();
+      await seedVideoReelsIfEmpty();
+      await syncPostCounters();
 
       // Ensure at least one account has ADMIN privileges for admin module
       const adminCount = await User.countDocuments({ role: 'ADMIN' });

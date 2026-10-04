@@ -41,6 +41,21 @@ const messageSchema = new mongoose.Schema(
     readAt: {
       type: Date,
       default: null
+    },
+    replyTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Message',
+      default: null
+    },
+    reactions: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        emoji: { type: String, required: true }
+      }
+    ],
+    isStarred: {
+      type: Boolean,
+      default: false
     }
   },
   {

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { demoAccounts } from '../data/demoAccounts';
 
-export default function AuthModal({ isOpen, onClose }) {
+export default function AuthModal({ isOpen, onClose, embedded = false, allowClose = true }) {
   const { login, register, quickDemoLogin } = useAuth();
   const { isDark } = useTheme();
 
@@ -20,7 +20,7 @@ export default function AuthModal({ isOpen, onClose }) {
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
 
-  if (!isOpen) return null;
+  if (!isOpen && !embedded) return null;
 
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
@@ -78,32 +78,33 @@ export default function AuthModal({ isOpen, onClose }) {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
-      <div
-        className={`w-full max-w-md rounded-3xl overflow-hidden border shadow-2xl transition-all ${isDark
-            ? 'bg-[#14161f] border-white/10 text-white'
-            : 'bg-white border-slate-200 text-slate-900'
-          }`}
-      >
-        {/* Header & Tabs */}
-        <div className="p-5 pb-3 border-b border-slate-100 dark:border-white/10">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-sm">
-                SX
-              </div>
-              <h3 className="font-extrabold text-base tracking-tight">
-                Welcome to SocialX
-              </h3>
+  const modalCard = (
+    <div
+      className={`w-full max-w-md rounded-3xl overflow-hidden border shadow-2xl transition-all ${isDark
+          ? 'bg-[#14161f] border-white/10 text-white'
+          : 'bg-white border-slate-200 text-slate-900'
+        }`}
+    >
+      {/* Header & Tabs */}
+      <div className="p-5 pb-3 border-b border-slate-100 dark:border-white/10">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 text-stone-950 flex items-center justify-center font-black text-sm shadow-sm">
+              SX
             </div>
+            <h3 className="font-extrabold text-base tracking-tight">
+              Welcome to SocialX
+            </h3>
+          </div>
+          {allowClose && (
             <button
               onClick={onClose}
               className="p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white"
             >
               <X className="w-5 h-5" />
             </button>
-          </div>
+          )}
+        </div>
 
           <div className="grid grid-cols-2 gap-1 p-1 rounded-2xl bg-slate-100 dark:bg-white/5 text-xs font-bold">
             <button
@@ -293,6 +294,20 @@ export default function AuthModal({ isOpen, onClose }) {
             </div>
           </div>
         </div>
+      </div>
+  );
+
+  if (embedded) {
+    return modalCard;
+  }
+
+  return (
+    <div
+      onClick={allowClose ? onClose : undefined}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150"
+    >
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md">
+        {modalCard}
       </div>
     </div>
   );

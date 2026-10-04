@@ -16,8 +16,8 @@ const secretConversationSchema = new mongoose.Schema(
     },
     autoDeleteLimit: {
       type: Number,
-      enum: [20, 50, 100],
-      default: 20
+      enum: [5, 10, 15, 20, 50, 100],
+      default: 10
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

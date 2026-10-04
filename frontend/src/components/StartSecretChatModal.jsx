@@ -13,7 +13,7 @@ export default function StartSecretChatModal({
 
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
-  const [autoDeleteLimit, setAutoDeleteLimit] = useState(20);
+  const [autoDeleteLimit, setAutoDeleteLimit] = useState(10);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -135,8 +135,8 @@ export default function StartSecretChatModal({
               <Clock className="w-3.5 h-3.5 text-amber-400" />
               <span>Auto-Delete Message Limit</span>
             </label>
-            <div className="grid grid-cols-3 gap-2">
-              {[20, 50, 100].map((limit) => (
+            <div className="grid grid-cols-4 gap-1.5">
+              {[5, 10, 15, 20].map((limit) => (
                 <button
                   key={limit}
                   type="button"

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   MapPin,
   Link as LinkIcon,
@@ -12,7 +12,8 @@ import {
   Lock,
   Video,
   Phone,
-  Sparkles
+  Sparkles,
+  MessageSquare
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -30,7 +31,9 @@ export default function ProfileHeader({
   profile,
   onProfileUpdated,
   onFollowToggle,
-  onStartSecretChat
+  onStartSecretChat,
+  onOpenConversation,
+  onNavigateToProfile
 }) {
   const { user } = useAuth();
   const { isDark } = useTheme();
@@ -68,7 +71,20 @@ export default function ProfileHeader({
   const [isUpdating, setIsUpdating] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
 
-  const isSelf = profile?.isSelf || (user && user.id === profile?.id);
+  const myId = (user?.id || user?._id)?.toString();
+  const profId = (profile?.id || profile?._id)?.toString();
+  const isSelf = Boolean(profile?.isSelf || (myId && profId && myId === profId));
+
+  const [isFollowing, setIsFollowing] = useState(Boolean(profile?.isFollowing));
+
+  useEffect(() => {
+    setIsFollowing(Boolean(profile?.isFollowing));
+  }, [profile?.isFollowing]);
+
+  const handleFollowToggle = (newFollowState) => {
+    setIsFollowing(newFollowState);
+    if (onFollowToggle) onFollowToggle(newFollowState);
+  };
 
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
@@ -209,57 +225,71 @@ export default function ProfileHeader({
             ) : (
               <div className="flex flex-wrap items-center gap-2">
                 <FollowButton
-                  userId={profile?.id}
+                  userId={profile?.id || profile?._id}
                   initialFollowing={profile?.isFollowing}
-                  onToggle={onFollowToggle}
+                  onToggle={handleFollowToggle}
                   size="lg"
                 />
-                <button
-                  onClick={() =>
-                    startCall({
-                      receiver: {
-                        _id: profile?.id || profile?._id,
-                        name: profile?.name,
-                        username: profile?.username,
-                        profileImage: profile?.profileImage,
-                        avatar: profile?.avatar
-                      },
-                      callType: 'audio'
-                    })
-                  }
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 transition-all shadow-xs cursor-pointer"
-                  title="Start voice call"
-                >
-                  <Phone className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Call</span>
-                </button>
-                <button
-                  onClick={() =>
-                    startCall({
-                      receiver: {
-                        _id: profile?.id || profile?._id,
-                        name: profile?.name,
-                        username: profile?.username,
-                        profileImage: profile?.profileImage,
-                        avatar: profile?.avatar
-                      },
-                      callType: 'video'
-                    })
-                  }
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold bg-orange-500/15 hover:bg-orange-500/25 text-orange-400 border border-orange-500/30 transition-all shadow-xs cursor-pointer"
-                  title="Start video call"
-                >
-                  <Video className="w-3.5 h-3.5 text-orange-400" />
-                  <span>Video</span>
-                </button>
-                <button
-                  onClick={() => setShowSecretChatModal(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-all shadow-xs"
-                  title="Start private ephemeral chat"
-                >
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>Secret Chat</span>
-                </button>
+                {isFollowing && (
+                  <>
+                    <button
+                      onClick={() =>
+                        startCall({
+                          receiver: {
+                            _id: profile?.id || profile?._id,
+                            name: profile?.name,
+                            username: profile?.username,
+                            profileImage: profile?.profileImage,
+                            avatar: profile?.avatar
+                          },
+                          callType: 'audio'
+                        })
+                      }
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 transition-all shadow-xs cursor-pointer animate-in fade-in zoom-in-95 duration-200"
+                      title="Start voice call"
+                    >
+                      <Phone className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Call</span>
+                    </button>
+                    <button
+                      onClick={() =>
+                        startCall({
+                          receiver: {
+                            _id: profile?.id || profile?._id,
+                            name: profile?.name,
+                            username: profile?.username,
+                            profileImage: profile?.profileImage,
+                            avatar: profile?.avatar
+                          },
+                          callType: 'video'
+                        })
+                      }
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold bg-orange-500/15 hover:bg-orange-500/25 text-orange-400 border border-orange-500/30 transition-all shadow-xs cursor-pointer animate-in fade-in zoom-in-95 duration-200"
+                      title="Start video call"
+                    >
+                      <Video className="w-3.5 h-3.5 text-orange-400" />
+                      <span>Video</span>
+                    </button>
+                    {onOpenConversation && (
+                      <button
+                        onClick={() => onOpenConversation(profile?.id || profile?._id)}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 transition-all shadow-xs cursor-pointer animate-in fade-in zoom-in-95 duration-200"
+                        title="Send direct message"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Message</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setShowSecretChatModal(true)}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-all shadow-xs cursor-pointer animate-in fade-in zoom-in-95 duration-200"
+                      title="Start private ephemeral chat"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Secret Chat</span>
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -357,9 +387,10 @@ export default function ProfileHeader({
       {showFollowersModal && (
         <FollowersModal
           isOpen={showFollowersModal}
-          userId={profile?.id}
+          userId={profile?.id || profile?._id}
           targetUsername={profile?.username}
           onClose={() => setShowFollowersModal(false)}
+          onNavigateUser={onNavigateToProfile}
         />
       )}
 
@@ -367,9 +398,10 @@ export default function ProfileHeader({
       {showFollowingModal && (
         <FollowingModal
           isOpen={showFollowingModal}
-          userId={profile?.id}
+          userId={profile?.id || profile?._id}
           targetUsername={profile?.username}
           onClose={() => setShowFollowingModal(false)}
+          onNavigateUser={onNavigateToProfile}
         />
       )}
 

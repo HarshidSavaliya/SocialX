@@ -2,7 +2,7 @@ import commentService from '../services/commentService.js';
 
 export const addComment = async (req, res, next) => {
   try {
-    const { id } = req.params; // postId
+    const id = req.params.postId || req.params.id; // postId
     const { text } = req.body;
     const authorId = req.user._id;
 
@@ -15,7 +15,8 @@ export const addComment = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Comment added successfully',
-      data: comment
+      data: comment,
+      comment: comment
     });
   } catch (error) {
     next(error);

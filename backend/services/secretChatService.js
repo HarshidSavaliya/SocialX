@@ -62,9 +62,9 @@ class SecretChatService {
       throw new Error('PIN must be between 4 and 6 digits (numbers only)');
     }
 
-    const parsedLimit = [20, 50, 100].includes(Number(autoDeleteLimit))
+    const parsedLimit = [5, 10, 15, 20].includes(Number(autoDeleteLimit))
       ? Number(autoDeleteLimit)
-      : 20;
+      : 10;
 
     // Hash the PIN with bcrypt - never store raw PIN
     const salt = await bcrypt.genSalt(10);
@@ -384,12 +384,13 @@ class SecretChatService {
    * Update Secret Chat settings (e.g. autoDeleteLimit)
    */
   async updateSettings(conversationId, { autoDeleteLimit }) {
-    const parsedLimit = [20, 50, 100].includes(Number(autoDeleteLimit))
-      ? Number(autoDeleteLimit)
+    const num = Number(autoDeleteLimit);
+    const parsedLimit = [5, 10, 15, 20, 50, 100].includes(num)
+      ? num
       : null;
 
     if (!parsedLimit) {
-      throw new Error('Valid autoDeleteLimit (20, 50, 100) is required');
+      throw new Error('Valid autoDeleteLimit (5, 10, 15, 20) is required');
     }
 
     const conversation = await SecretConversation.findById(conversationId);

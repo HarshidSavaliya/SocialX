@@ -6,7 +6,7 @@ import {
   getPostById,
   getFeed
 } from '../controllers/postController.js';
-import { likePost, unlikePost } from '../controllers/likeController.js';
+import { likePost, unlikePost, getPostLikers } from '../controllers/likeController.js';
 import { addComment, getComments } from '../controllers/commentController.js';
 import { sharePost } from '../controllers/shareController.js';
 import { protect, optionalAuth } from '../middleware/authMiddleware.js';
@@ -26,6 +26,7 @@ router.delete('/:id', protect, deletePost);
 // Social Interactions: Likes
 router.post('/:id/like', protect, likePost);
 router.delete('/:id/like', protect, unlikePost);
+router.get('/:id/likes', optionalAuth, getPostLikers);
 
 // Social Interactions: Comments
 router.post('/:id/comments', protect, addComment);

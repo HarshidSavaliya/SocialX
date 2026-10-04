@@ -3,7 +3,7 @@ import messageService from '../services/messageService.js';
 export const getConversations = async (req, res, next) => {
   try {
     const conversations = await messageService.getConversations(req.user._id);
-    res.json({ success: true, data: { conversations } });
+    res.json({ success: true, data: { conversations }, conversations });
   } catch (err) {
     next(err);
   }

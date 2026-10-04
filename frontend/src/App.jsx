@@ -1,7 +1,7 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { SocketProvider } from './context/SocketContext';
+import { SocketProvider, useSocket } from './context/SocketContext';
 import { VideoCallProvider } from './context/VideoCallContext';
 
 // Components
@@ -22,7 +22,8 @@ import ProfileView from './views/ProfileView';
 import MessagingView from './views/MessagingView';
 import SearchView from './views/SearchView';
 import NotificationsView from './views/NotificationsView';
-import ExploreView from './views/ExploreView';
+import ReelsView from './views/ReelsView';
+import CreatePostView from './views/CreatePostView';
 
 // Route-level code splitting (PART 26: Performance Optimization)
 const AdminView = lazy(() => import('./views/AdminView'));
@@ -30,11 +31,13 @@ const SecretChatView = lazy(() => import('./views/SecretChatView'));
 
 // API Services
 import { postService } from './services/postService';
-import { Sparkles, Hash, X, RefreshCw } from 'lucide-react';
+import { Sparkles, Hash, X, RefreshCw, ShieldCheck } from 'lucide-react';
 
 function SocialXMain() {
   const { isDark } = useTheme();
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, loading: authLoading } = useAuth();
+  const { socket } = useSocket() || {};
+  const [secretInviteNotification, setSecretInviteNotification] = useState(null);
 
   // Navigation states: 'feed' | 'profile' | 'messages' | 'search' | 'notifications' | 'explore'
   const [activeView, setActiveView] = useState('feed');
@@ -51,6 +54,10 @@ function SocialXMain() {
 
   // Load feed on mount and when filter / hashtag changes
   const loadFeed = async (page = 1, append = false) => {
+    if (!isAuthenticated) {
+      setLoadingFeed(false);
+      return;
+    }
     try {
       if (page === 1) setLoadingFeed(true);
       else setLoadingMore(true);
@@ -82,7 +89,7 @@ function SocialXMain() {
   };
 
   useEffect(() => {
-    if (activeView === 'feed') {
+    if (activeView === 'feed' && isAuthenticated) {
       loadFeed(1, false);
     }
   }, [activeView, feedFilter, activeHashtag, isAuthenticated]);
@@ -100,8 +107,15 @@ function SocialXMain() {
     setPosts((prev) => prev.filter((p) => (p._id || p.id) !== postId));
   };
 
-  const handleNavigateToProfile = (username) => {
-    setTargetUsername(username);
+  const handleNavigateToProfile = (target) => {
+    let clean = '';
+    if (typeof target === 'string') {
+      clean = target.trim().replace(/^@+/, '');
+    } else if (target && typeof target === 'object') {
+      clean = (target.username || target._id || target.id || '').toString().trim().replace(/^@+/, '');
+    }
+    if (!clean) return;
+    setTargetUsername(clean);
     setActiveView('profile');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -137,6 +151,17 @@ function SocialXMain() {
 
   const [secretChatConvId, setSecretChatConvId] = useState(null);
 
+  useEffect(() => {
+    if (!socket || !isAuthenticated) return;
+    const handleSecretInviteReceived = (data) => {
+      setSecretInviteNotification(data);
+    };
+    socket.on('secret:invite:received', handleSecretInviteReceived);
+    return () => {
+      socket.off('secret:invite:received', handleSecretInviteReceived);
+    };
+  }, [socket, isAuthenticated]);
+
   const handleOpenSecretChat = (convId = null) => {
     if (!isAuthenticated) {
       setShowAuthModal(true);
@@ -155,6 +180,19 @@ function SocialXMain() {
     setActiveView('admin');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  if (authLoading) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${isDark ? 'bg-[#0c0a0f]' : 'bg-[#f7f5f2]'}`}>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center animate-pulse">
+            <Sparkles className="w-6 h-6 text-amber-500" />
+          </div>
+          <p className="text-xs text-stone-400 font-semibold tracking-wide">Loading SocialX...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -181,7 +219,7 @@ function SocialXMain() {
         onOpenCreatePost={() => {
           if (!isAuthenticated) setShowAuthModal(true);
           else {
-            setActiveView('feed');
+            setActiveView('create-post');
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }
         }}
@@ -192,8 +230,10 @@ function SocialXMain() {
           setActiveHashtag(null);
         }}
         onNavigateToMyProfile={() => {
-          if (user?.username) handleNavigateToProfile(user.username);
+          const target = user?.username || user?._id || user?.id || 'me';
+          handleNavigateToProfile(target);
         }}
+        onNavigateToProfile={handleNavigateToProfile}
         onSearchHashtag={(tag) => handleHashtagClick(tag)}
         onOpenSearch={handleOpenSearch}
         onOpenNotifications={handleOpenNotifications}
@@ -202,10 +242,31 @@ function SocialXMain() {
         onOpenSecretChat={() => handleOpenSecretChat(null)}
       />
 
-      {/* Main Desktop Container */}
-      <main className="relative z-10 max-w-[1440px] mx-auto px-2 sm:px-4 lg:px-8 py-4 sm:py-6 pb-24 md:pb-8">
-        <div className="flex flex-col lg:flex-row gap-6 items-start">
-          {/* Left Sidebar */}
+      {/* Main Desktop Container: Gated if not authenticated */}
+      {!isAuthenticated ? (
+        <div className="relative z-10 max-w-lg mx-auto px-4 py-8 sm:py-12 flex flex-col items-center justify-center min-h-[calc(100vh-6rem)]">
+          <div className="text-center mb-6">
+            <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 mb-3 shadow-xs">
+              🔒 Member Access Required
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-black text-stone-900 dark:text-white tracking-tight">
+              Sign In to SocialX
+            </h1>
+            <p className="text-xs text-stone-400 max-w-xs mx-auto mt-1.5 leading-relaxed">
+              Sign in or create an account to view your home feed, post updates, and chat with friends.
+            </p>
+          </div>
+          <AuthModal
+            isOpen={true}
+            embedded={true}
+            allowClose={false}
+            onClose={() => {}}
+          />
+        </div>
+      ) : (
+        <main className="relative z-10 max-w-[1440px] mx-auto px-2 sm:px-4 lg:px-8 py-4 sm:py-6 pb-24 md:pb-8">
+          <div className="flex flex-col lg:flex-row gap-6 items-start">
+            {/* Left Sidebar */}
           <div className="hidden lg:block flex-shrink-0">
             <div className="sticky top-24">
               <LeftSidebar
@@ -225,7 +286,8 @@ function SocialXMain() {
                 }}
                 onOpenAuth={() => setShowAuthModal(true)}
                 onNavigateToMyProfile={() => {
-                  if (user?.username) handleNavigateToProfile(user.username);
+                  const target = user?.username || user?._id || user?.id || 'me';
+                  handleNavigateToProfile(target);
                 }}
               />
             </div>
@@ -234,7 +296,10 @@ function SocialXMain() {
           {/* Full-width view for real-time messaging, Secret Chat, or Admin */}
           {activeView === 'messages' ? (
             <div className="flex-1 w-full min-w-0">
-              <MessagingView onOpenSecretChat={() => handleOpenSecretChat(null)} />
+              <MessagingView
+                onOpenSecretChat={() => handleOpenSecretChat(null)}
+                onNavigateToProfile={handleNavigateToProfile}
+              />
             </div>
           ) : activeView === 'secret-chat' ? (
             <div className="flex-1 w-full min-w-0">
@@ -390,7 +455,7 @@ function SocialXMain() {
                 {/* VIEW B: USER PROFILE */}
                 {activeView === 'profile' && (
                   <ProfileView
-                    username={targetUsername || user?.username}
+                    username={targetUsername || user?.username || user?._id || user?.id || 'me'}
                     onBack={() => {
                       setActiveView('feed');
                       setTargetUsername(null);
@@ -422,24 +487,34 @@ function SocialXMain() {
                         notification.relatedConversation
                       ) {
                         handleOpenConversation(notification.relatedConversation);
-                      } else if (notification.type === 'FOLLOW' && notification.sender?.username) {
-                        handleNavigateToProfile(notification.sender.username);
-                      } else if (
-                        (notification.type === 'VIDEO_CALL' ||
-                          notification.type === 'MISSED_VIDEO_CALL') &&
-                        notification.sender?.username
-                      ) {
-                        handleNavigateToProfile(notification.sender.username);
+                      } else {
+                        const target =
+                          notification.sender?.username ||
+                          notification.sender?._id ||
+                          notification.sender?.id ||
+                          notification.sender;
+                        if (target) handleNavigateToProfile(target);
                       }
                     }}
                   />
                 )}
 
-                {/* VIEW E: EXPLORE */}
-                {activeView === 'explore' && (
-                  <ExploreView
+                {/* VIEW E: REELS */}
+                {(activeView === 'reels' || activeView === 'explore') && (
+                  <ReelsView
                     onNavigateToProfile={handleNavigateToProfile}
                     onHashtagClick={handleHashtagClick}
+                  />
+                )}
+
+                {/* VIEW F: CREATE POST */}
+                {activeView === 'create-post' && (
+                  <CreatePostView
+                    onPostCreated={handlePostCreated}
+                    onCancel={() => {
+                      setActiveView('feed');
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
                   />
                 )}
               </div>
@@ -457,10 +532,43 @@ function SocialXMain() {
           )}
         </div>
       </main>
+      )}
 
       {/* Auth Modal (Sign In / Register / Demo) */}
       {showAuthModal && (
         <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
+      )}
+
+      {/* Secret Chat Invitation Banner */}
+      {secretInviteNotification && (
+        <div className="fixed top-20 right-4 sm:right-8 z-50 max-w-sm bg-gradient-to-r from-[#0d1f18] to-[#12131a] border border-emerald-500/40 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-3 backdrop-blur-xl animate-in slide-in-from-top-4">
+          <div className="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-5 h-5 text-emerald-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-emerald-400">Secret Mode Invite</p>
+            <p className="text-xs text-stone-200 truncate">
+              @{secretInviteNotification.fromUser?.username || 'A friend'} invited you to Secret Chat!
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={() => {
+                handleOpenSecretChat(secretInviteNotification.conversationId);
+                setSecretInviteNotification(null);
+              }}
+              className="px-3 py-1.5 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-stone-950 rounded-xl transition-all shadow-md shadow-emerald-500/20"
+            >
+              Join
+            </button>
+            <button
+              onClick={() => setSecretInviteNotification(null)}
+              className="p-1 text-stone-400 hover:text-white rounded-lg transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Mobile Bottom Navigation Bar */}
@@ -477,7 +585,7 @@ function SocialXMain() {
         onOpenCreatePost={() => {
           if (!isAuthenticated) setShowAuthModal(true);
           else {
-            setActiveView('feed');
+            setActiveView('create-post');
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }
         }}

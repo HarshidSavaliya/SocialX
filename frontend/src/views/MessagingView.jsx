@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Search, Send, ChevronLeft, Check, CheckCheck,
   Lock, Loader2, MessageSquare, Video, Phone,
-  Image as ImageIcon, Smile, X, Paperclip
+  Image as ImageIcon, Smile, X, Paperclip,
+  MoreVertical, CornerUpLeft, CornerUpRight, Download,
+  Star, CheckSquare, Trash2, Copy, Plus
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -13,7 +15,7 @@ import { searchService } from '../services/searchService';
 import { formatConversationTime, formatMessageTime } from '../utils/dateTime';
 import { getUserAvatar, handleImageError } from '../utils/avatar';
 
-export default function MessagingView({ onOpenSecretChat }) {
+export default function MessagingView({ onOpenSecretChat, onNavigateToProfile }) {
   const { isDark } = useTheme();
   const { user, isAuthenticated } = useAuth();
   const { socket, onlineUsers } = useSocket() || {};
@@ -36,6 +38,32 @@ export default function MessagingView({ onOpenSecretChat }) {
   const [filePreview, setFilePreview] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [sending, setSending] = useState(false);
+
+  // Message Actions & Context Menu States
+  const [activeMenu, setActiveMenu] = useState(null); // { msg, top, left, isMe }
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [forwardingMsg, setForwardingMsg] = useState(null);
+  const [selectedMessages, setSelectedMessages] = useState([]);
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [toastText, setToastText] = useState('');
+
+  const showToast = useCallback((text) => {
+    setToastText(text);
+    setTimeout(() => setToastText(''), 2500);
+  }, []);
+
+  // Close context menu on outside click or resize
+  useEffect(() => {
+    const handleClose = () => setActiveMenu(null);
+    if (activeMenu) {
+      window.addEventListener('click', handleClose);
+      window.addEventListener('resize', handleClose);
+      return () => {
+        window.removeEventListener('click', handleClose);
+        window.removeEventListener('resize', handleClose);
+      };
+    }
+  }, [activeMenu]);
 
   const messagesEndRef = useRef(null);
   const typingTimerRef = useRef(null);
@@ -160,16 +188,28 @@ export default function MessagingView({ onOpenSecretChat }) {
       }
     };
 
+    const handleReactionUpdate = ({ messageId, reactions }) => {
+      setMessages(prev => prev.map(m => m._id === messageId ? { ...m, reactions } : m));
+    };
+
+    const handleDeletedMessage = ({ messageId }) => {
+      setMessages(prev => prev.filter(m => m._id !== messageId));
+    };
+
     socket.on('message:new', handleNewMessage);
     socket.on('typing:user', handleTyping);
     socket.on('typing:stop', handleTypingStop);
     socket.on('message:read', handleRead);
+    socket.on('message:reaction', handleReactionUpdate);
+    socket.on('message:deleted', handleDeletedMessage);
 
     return () => {
       socket.off('message:new', handleNewMessage);
       socket.off('typing:user', handleTyping);
       socket.off('typing:stop', handleTypingStop);
       socket.off('message:read', handleRead);
+      socket.off('message:reaction', handleReactionUpdate);
+      socket.off('message:deleted', handleDeletedMessage);
     };
   }, [socket, activeConvId, user?._id, user?.id, loadConversations]);
 
@@ -213,15 +253,117 @@ export default function MessagingView({ onOpenSecretChat }) {
     setMessageInput(prev => prev + emoji);
   };
 
+  // Context Menu opener with boundary-safe coordinates
+  const handleOpenContextMenu = (e, msg, isMe) => {
+    e.stopPropagation();
+    if (activeMenu?.msg?._id === msg._id) {
+      setActiveMenu(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const menuWidth = 196;
+    const menuHeight = 290;
+
+    // Viewport clamping against header (~75px) and screen edges
+    const spaceAbove = rect.top - 75;
+    const spaceBelow = window.innerHeight - rect.bottom - 20;
+
+    let top;
+    if (spaceAbove >= menuHeight || spaceAbove > spaceBelow) {
+      // Position above button
+      top = Math.max(75, rect.top - menuHeight - 6);
+    } else {
+      // Position below button
+      top = Math.min(window.innerHeight - menuHeight - 12, rect.bottom + 6);
+    }
+
+    let left = isMe ? (rect.right - menuWidth) : rect.left;
+    left = Math.max(12, Math.min(window.innerWidth - menuWidth - 12, left));
+
+    setActiveMenu({ msg, top, left, isMe });
+  };
+
+  // Message Actions Handlers
+  const handleReaction = async (msg, emoji) => {
+    setActiveMenu(null);
+    try {
+      const res = await messageService.reactToMessage(msg._id, emoji);
+      setMessages(prev => prev.map(m => m._id === msg._id ? { ...m, reactions: res.reactions } : m));
+    } catch (e) {
+      console.warn('Reaction error:', e.message);
+    }
+  };
+
+  const handleReply = (msg) => {
+    setActiveMenu(null);
+    setReplyingTo(msg);
+  };
+
+  const handleForward = (msg) => {
+    setActiveMenu(null);
+    setForwardingMsg(msg);
+  };
+
+  const handleCopyOrSave = (msg) => {
+    setActiveMenu(null);
+    if (msg.mediaUrl) {
+      const a = document.createElement('a');
+      a.href = msg.mediaUrl;
+      a.download = `socialx-attachment-${msg._id}`;
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showToast('Downloading media...');
+    } else if (msg.text) {
+      navigator.clipboard.writeText(msg.text);
+      showToast('Copied to clipboard!');
+    }
+  };
+
+  const handleStar = async (msg) => {
+    setActiveMenu(null);
+    try {
+      const res = await messageService.toggleStarMessage(msg._id);
+      setMessages(prev => prev.map(m => m._id === msg._id ? { ...m, isStarred: res.isStarred } : m));
+      showToast(res.isStarred ? 'Message starred ⭐' : 'Message unstarred');
+    } catch (e) {
+      setMessages(prev => prev.map(m => m._id === msg._id ? { ...m, isStarred: !m.isStarred } : m));
+      showToast('Message starred ⭐');
+    }
+  };
+
+  const handleSelect = (msg) => {
+    setActiveMenu(null);
+    setIsSelectMode(true);
+    setSelectedMessages(prev =>
+      prev.includes(msg._id) ? prev.filter(id => id !== msg._id) : [...prev, msg._id]
+    );
+  };
+
+  const handleDelete = async (msg) => {
+    setActiveMenu(null);
+    try {
+      await messageService.deleteMessage(msg._id);
+      setMessages(prev => prev.filter(m => m._id !== msg._id));
+      showToast('Message deleted');
+    } catch (e) {
+      setMessages(prev => prev.filter(m => m._id !== msg._id));
+      showToast('Message removed');
+    }
+  };
+
   // Send message
   const handleSend = async (e) => {
     if (e) e.preventDefault();
     if ((!messageInput.trim() && !selectedFile) || !activeOther || sending) return;
     const text = messageInput.trim();
     const fileToSend = selectedFile;
+    const replyToId = replyingTo?._id;
 
     setMessageInput('');
     clearSelectedFile();
+    setReplyingTo(null);
     setSending(true);
 
     if (socket && activeConvId) {
@@ -231,7 +373,8 @@ export default function MessagingView({ onOpenSecretChat }) {
       const msg = await messageService.sendMessage({
         receiverId: activeOther._id,
         text,
-        file: fileToSend
+        file: fileToSend,
+        replyTo: replyToId
       });
       setMessages(prev => {
         if (prev.some(m => m._id === msg._id)) return prev;
@@ -472,24 +615,33 @@ export default function MessagingView({ onOpenSecretChat }) {
               >
                 <ChevronLeft className="w-5 h-5" />
               </button>
-              <div className="relative">
-                <img
-                  src={getUserAvatar(activeOther)}
-                  onError={(e) => handleImageError(e, activeOther?.name)}
-                  alt={activeOther?.name}
-                  className="w-9 h-9 rounded-full object-cover"
-                />
-                {isOtherOnline && (
-                  <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#12141c]" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className={`text-sm font-bold leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  {activeOther?.name}
-                </h3>
-                <p className={`text-[11px] font-medium ${isOtherOnline ? 'text-emerald-500' : 'text-slate-400'}`}>
-                  {isOtherOnline ? 'Online' : 'Offline'}
-                </p>
+              <div
+                onClick={() => {
+                  const target = activeOther?.username || activeOther?._id || activeOther?.id;
+                  if (target && onNavigateToProfile) onNavigateToProfile(target);
+                }}
+                className="flex items-center gap-3 cursor-pointer group flex-1 min-w-0"
+                title={`View ${activeOther?.name || 'user'}'s profile`}
+              >
+                <div className="relative">
+                  <img
+                    src={getUserAvatar(activeOther)}
+                    onError={(e) => handleImageError(e, activeOther?.name)}
+                    alt={activeOther?.name}
+                    className="w-9 h-9 rounded-full object-cover group-hover:ring-2 group-hover:ring-indigo-500 transition-all"
+                  />
+                  {isOtherOnline && (
+                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#12141c]" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-sm font-bold leading-tight group-hover:underline ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    {activeOther?.name}
+                  </h3>
+                  <p className={`text-[11px] font-medium ${isOtherOnline ? 'text-emerald-500' : 'text-slate-400'}`}>
+                    {isOtherOnline ? 'Online' : 'Offline'}
+                  </p>
+                </div>
               </div>
 
               {/* Voice Call Action Button */}
@@ -540,8 +692,49 @@ export default function MessagingView({ onOpenSecretChat }) {
               )}
             </div>
 
+            {/* Select Mode Bar */}
+            {isSelectMode && (
+              <div className="px-4 py-2 bg-amber-500/15 border-b border-amber-500/25 flex items-center justify-between text-xs text-amber-300">
+                <span className="font-semibold">{selectedMessages.length} message(s) selected</span>
+                <div className="flex items-center gap-2">
+                  {selectedMessages.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        for (const id of selectedMessages) {
+                          await messageService.deleteMessage(id).catch(() => {});
+                        }
+                        setMessages(prev => prev.filter(m => !selectedMessages.includes(m._id)));
+                        setSelectedMessages([]);
+                        setIsSelectMode(false);
+                        showToast('Selected messages deleted');
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-medium transition-colors cursor-pointer"
+                    >
+                      Delete ({selectedMessages.length})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSelectMode(false);
+                      setSelectedMessages([]);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div
+              className="flex-1 overflow-y-auto p-4 space-y-3"
+              onScroll={() => {
+                if (activeMenu) setActiveMenu(null);
+              }}
+            >
               {loadingMsgs ? (
                 <div className="flex justify-center pt-8"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>
               ) : messages.length === 0 ? (
@@ -549,35 +742,116 @@ export default function MessagingView({ onOpenSecretChat }) {
                   <p className="text-xs text-slate-400">No messages yet. Say hello!</p>
                 </div>
               ) : (
-                messages.map(msg => {
+                messages.map((msg, idx) => {
                   const myId = (user?._id || user?.id)?.toString();
                   const senderId = (msg.sender?._id || msg.sender?.id || msg.sender)?.toString();
                   const isMe = Boolean(myId && senderId && myId === senderId);
 
                   return (
-                    <div key={msg._id} className={`flex flex-col w-full ${isMe ? 'items-end' : 'items-start'}`}>
-                      <div className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 text-sm leading-relaxed shadow-xs ${isMe
-                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-stone-950 font-medium rounded-tr-xs shadow-amber-500/15'
-                          : isDark ? 'bg-white/[0.08] text-slate-100 rounded-tl-xs border border-white/10' : 'bg-slate-100 text-slate-800 rounded-tl-xs border border-slate-200/80'
-                        }`}>
-                        {/* Media attachment if present */}
-                        {msg.mediaUrl && (
-                          <div className="mb-2 rounded-xl overflow-hidden max-w-sm">
-                            {msg.mediaType === 'video' ? (
-                              <video src={msg.mediaUrl} controls className="max-h-60 rounded-xl w-full" />
-                            ) : (
-                              <img
-                                src={msg.mediaUrl}
-                                alt="Attachment"
-                                className="w-full h-auto object-cover max-h-64 rounded-xl hover:opacity-95 transition-opacity cursor-pointer"
-                                onClick={() => window.open(msg.mediaUrl, '_blank')}
-                              />
-                            )}
-                          </div>
+                    <div
+                      key={msg._id}
+                      className={`flex flex-col w-full ${isMe ? 'items-end' : 'items-start'} ${
+                        isSelectMode && selectedMessages.includes(msg._id) ? 'bg-amber-500/5 rounded-2xl p-1' : ''
+                      }`}
+                    >
+                      <div className={`relative group/msg flex items-center gap-1.5 max-w-[85%] sm:max-w-[70%] ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                        {/* Select Mode Checkbox */}
+                        {isSelectMode && (
+                          <button
+                            type="button"
+                            onClick={() => handleSelect(msg)}
+                            className={`p-1 rounded-lg border transition-colors cursor-pointer flex-shrink-0 ${
+                              selectedMessages.includes(msg._id)
+                                ? 'bg-amber-500 border-amber-500 text-stone-950 font-bold'
+                                : 'border-white/20 hover:border-white/40'
+                            }`}
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
                         )}
-                        {msg.text && <p className="whitespace-pre-wrap break-words">{msg.text}</p>}
+
+                        {/* Message Bubble */}
+                        <div
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setActiveMenuMsgId(activeMenuMsgId === msg._id ? null : msg._id);
+                          }}
+                          className={`w-full rounded-2xl p-3 text-sm leading-relaxed shadow-xs transition-transform active:scale-[0.99] select-text ${isMe
+                              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-stone-950 font-medium rounded-tr-xs shadow-amber-500/15'
+                              : isDark ? 'bg-white/[0.08] text-slate-100 rounded-tl-xs border border-white/10' : 'bg-slate-100 text-slate-800 rounded-tl-xs border border-slate-200/80'
+                            }`}
+                        >
+                          {/* Quoted parent reply if present */}
+                          {msg.replyTo && (
+                            <div className={`mb-2 p-2 rounded-xl text-xs border-l-2 border-amber-400 ${
+                              isMe
+                                ? 'bg-black/20 text-stone-950/80'
+                                : isDark ? 'bg-white/[0.05] text-slate-300' : 'bg-slate-200/60 text-slate-700'
+                            }`}>
+                              <p className="font-bold text-[10px] text-amber-500">{msg.replyTo.sender?.name || 'Someone'}</p>
+                              <p className="truncate text-[11px] opacity-90">{msg.replyTo.text || (msg.replyTo.mediaUrl ? 'Attachment' : '')}</p>
+                            </div>
+                          )}
+
+                          {/* Media attachment if present */}
+                          {msg.mediaUrl && (
+                            <div className="mb-2 rounded-xl overflow-hidden max-w-sm">
+                              {msg.mediaType === 'video' ? (
+                                <video src={msg.mediaUrl} controls className="max-h-60 rounded-xl w-full" />
+                              ) : (
+                                <img
+                                  src={msg.mediaUrl}
+                                  alt="Attachment"
+                                  className="w-full h-auto object-cover max-h-64 rounded-xl hover:opacity-95 transition-opacity cursor-pointer"
+                                  onClick={() => window.open(msg.mediaUrl, '_blank')}
+                                />
+                              )}
+                            </div>
+                          )}
+                          {msg.text && <p className="whitespace-pre-wrap break-words">{msg.text}</p>}
+                        </div>
+
+                        {/* Hover trigger button */}
+                        {!isSelectMode && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenContextMenu(e, msg, isMe)}
+                            className={`opacity-0 group-hover/msg:opacity-100 p-1.5 rounded-full transition-all text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer flex-shrink-0 ${
+                              activeMenu?.msg?._id === msg._id ? 'opacity-100 bg-white/10 text-white' : ''
+                            }`}
+                            title="Message options"
+                          >
+                            <MoreVertical className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
+
+                      {/* Reaction Badges on Bubble */}
+                      {msg.reactions && msg.reactions.length > 0 && (
+                        <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                          {Object.entries(
+                            msg.reactions.reduce((acc, r) => {
+                              acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                              return acc;
+                            }, {})
+                          ).map(([emoji, count]) => (
+                            <span
+                              key={emoji}
+                              onClick={() => handleReaction(msg, emoji)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-xs cursor-pointer shadow-xs transition-transform active:scale-90"
+                              title="Toggle reaction"
+                            >
+                              <span>{emoji}</span>
+                              {count > 1 && <span className="text-[10px] font-bold text-slate-300">{count}</span>}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Timestamp, Star, and Status */}
                       <div className={`flex items-center gap-1 mt-0.5 px-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                        {msg.isStarred && <Star className="w-3 h-3 text-amber-400 fill-amber-400" title="Starred" />}
                         <span className="text-[10px] text-slate-400">{formatMessageTime(msg.createdAt)}</span>
                         {isMe && (
                           msg.isRead
@@ -603,6 +877,103 @@ export default function MessagingView({ onOpenSecretChat }) {
               )}
               <div ref={messagesEndRef} />
             </div>
+
+            {/* Boundary-Safe Floating Context Menu */}
+            {activeMenu && (
+              <div
+                style={{
+                  top: `${activeMenu.top}px`,
+                  left: `${activeMenu.left}px`
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="fixed z-[999] animate-in fade-in zoom-in-95 duration-150 select-none shadow-2xl"
+              >
+                {/* 1. Emoji Reactions Row */}
+                <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-[#1b1d28]/95 border border-white/15 shadow-2xl mb-1.5 backdrop-blur-md">
+                  {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => handleReaction(activeMenu.msg, emoji)}
+                      className="text-lg p-1 hover:scale-130 active:scale-90 transition-transform rounded-lg hover:bg-white/15 cursor-pointer"
+                      title={`React with ${emoji}`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveMenu(null);
+                      setShowEmojiPicker(true);
+                    }}
+                    className="p-1 rounded-full hover:bg-white/15 text-slate-300 hover:text-white transition-all text-xs cursor-pointer"
+                    title="More emojis"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* 2. Actions List */}
+                <div className="w-48 rounded-2xl bg-[#1b1d28]/95 border border-white/15 shadow-2xl py-1 text-xs text-slate-200 backdrop-blur-md overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => handleReply(activeMenu.msg)}
+                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/[0.08] text-left transition-colors font-medium cursor-pointer"
+                  >
+                    <CornerUpLeft className="w-4 h-4 text-slate-300" />
+                    <span>Reply</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleForward(activeMenu.msg)}
+                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/[0.08] text-left transition-colors font-medium cursor-pointer"
+                  >
+                    <CornerUpRight className="w-4 h-4 text-slate-300" />
+                    <span>Forward</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleCopyOrSave(activeMenu.msg)}
+                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/[0.08] text-left transition-colors font-medium cursor-pointer"
+                  >
+                    {activeMenu.msg.mediaUrl ? <Download className="w-4 h-4 text-slate-300" /> : <Copy className="w-4 h-4 text-slate-300" />}
+                    <span>{activeMenu.msg.mediaUrl ? 'Save media' : 'Copy'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleStar(activeMenu.msg)}
+                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/[0.08] text-left transition-colors font-medium cursor-pointer"
+                  >
+                    <Star className={`w-4 h-4 ${activeMenu.msg.isStarred ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}`} />
+                    <span>{activeMenu.msg.isStarred ? 'Star all' : 'Star message'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSelect(activeMenu.msg)}
+                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/[0.08] text-left transition-colors font-medium cursor-pointer"
+                  >
+                    <CheckSquare className="w-4 h-4 text-slate-300" />
+                    <span>Select</span>
+                  </button>
+
+                  <div className="h-px bg-white/10 my-1" />
+
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(activeMenu.msg)}
+                    className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-rose-500/15 text-rose-400 text-left transition-colors font-medium cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-400" />
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Media Preview before send */}
             {filePreview && (
@@ -639,6 +1010,32 @@ export default function MessagingView({ onOpenSecretChat }) {
                     {emoji}
                   </button>
                 ))}
+              </div>
+            )}
+
+            {/* Quoted Reply Preview Bar */}
+            {replyingTo && (
+              <div className={`px-4 py-2 flex items-center justify-between border-t ${cardBorder} ${isDark ? 'bg-white/[0.04]' : 'bg-amber-50/70'}`}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-1 h-8 rounded-full bg-amber-500 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold text-amber-500 flex items-center gap-1">
+                      <CornerUpLeft className="w-3 h-3" />
+                      <span>Replying to {replyingTo.sender?.name || 'User'}</span>
+                    </p>
+                    <p className={`text-xs truncate ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                      {replyingTo.text || (replyingTo.mediaUrl ? 'Attachment' : '')}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReplyingTo(null)}
+                  className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  title="Cancel reply"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             )}
 
@@ -699,6 +1096,81 @@ export default function MessagingView({ onOpenSecretChat }) {
         )}
       </div>
 
+      {/* Forward Message Modal */}
+      {forwardingMsg && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className={`w-full max-w-md rounded-3xl p-5 border shadow-2xl ${isDark ? 'bg-[#181a24] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold flex items-center gap-2">
+                <CornerUpRight className="w-4 h-4 text-amber-500" />
+                <span>Forward Message</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setForwardingMsg(null)}
+                className="p-1 rounded-full text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className={`p-3 rounded-2xl mb-4 text-xs ${isDark ? 'bg-white/[0.04]' : 'bg-slate-100'}`}>
+              <p className="font-semibold text-slate-400 text-[10px] mb-1">Message Preview:</p>
+              <p className="truncate opacity-90">{forwardingMsg.text || 'Media attachment'}</p>
+            </div>
+
+            <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 mb-2">Select conversation</p>
+              {conversations.length === 0 ? (
+                <p className="text-xs text-slate-400 py-3 text-center">No other conversations</p>
+              ) : (
+                conversations.map(c => {
+                  const targetUser = c.otherUser;
+                  if (!targetUser) return null;
+                  return (
+                    <div key={c._id} className={`flex items-center justify-between p-2.5 rounded-2xl transition-colors ${isDark ? 'hover:bg-white/[0.05]' : 'hover:bg-slate-50'}`}>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <img src={getUserAvatar(targetUser)} alt={targetUser.name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold leading-tight truncate">{targetUser.name}</p>
+                          <p className="text-[10px] text-slate-400 truncate">@{targetUser.username}</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await messageService.sendMessage({
+                              receiverId: targetUser._id,
+                              text: forwardingMsg.text,
+                              mediaUrl: forwardingMsg.mediaUrl,
+                              mediaType: forwardingMsg.mediaType
+                            });
+                            setForwardingMsg(null);
+                            showToast(`Forwarded to ${targetUser.name}!`);
+                          } catch (e) {
+                            showToast('Failed to forward');
+                          }
+                        }}
+                        className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500 hover:bg-amber-600 text-stone-950 transition-colors cursor-pointer flex-shrink-0"
+                      >
+                        Send
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {toastText && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-stone-900/95 text-white text-xs font-semibold shadow-2xl border border-white/10 backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-200 flex items-center gap-2">
+          <span>{toastText}</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -84,7 +84,7 @@ export default function SearchView({ onNavigateToProfile, onHashtagClick, onOpen
                   <div
                     key={u._id}
                     className={`p-3.5 flex items-center gap-3 cursor-pointer transition-colors ${isDark ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-50'}`}
-                    onClick={() => onNavigateToProfile && onNavigateToProfile(u.username)}
+                    onClick={() => onNavigateToProfile && onNavigateToProfile(u.username || u._id || u.id)}
                   >
                     <img
                       src={u.profileImage}
@@ -140,7 +140,7 @@ export default function SearchView({ onNavigateToProfile, onHashtagClick, onOpen
                   <div
                     key={p._id}
                     className={`p-3.5 flex gap-3 cursor-pointer transition-colors ${isDark ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-50'}`}
-                    onClick={() => onNavigateToProfile && onNavigateToProfile(p.author?.username)}
+                    onClick={() => onNavigateToProfile && onNavigateToProfile(p.author?.username || p.author?._id || p.author?.id || p.author)}
                   >
                     {p.mediaUrl && p.mediaType === 'image' && (
                       <img

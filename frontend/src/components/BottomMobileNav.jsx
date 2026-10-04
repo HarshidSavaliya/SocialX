@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Search, PlusCircle, MessageSquare, User } from 'lucide-react';
+import { Home, Search, PlusCircle, MessageSquare, Clapperboard, User } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useNotifications } from '../hooks/useNotifications';
 
@@ -9,7 +9,7 @@ export default function BottomMobileNav({ activeView, setActiveView, onOpenCreat
 
   const navItems = [
     { id: 'feed', label: 'Home', icon: Home },
-    { id: 'search', label: 'Search', icon: Search },
+    { id: 'reels', label: 'Reels', icon: Clapperboard },
     { id: 'create', label: 'Post', icon: PlusCircle, isCreate: true },
     {
       id: 'messages',

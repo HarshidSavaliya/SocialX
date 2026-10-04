@@ -1,11 +1,42 @@
+import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Follow from '../models/Follow.js';
 import cloudinaryService from './cloudinaryService.js';
 
 class UserService {
   async getUserProfile(username, currentUserId = null) {
-    const cleanUsername = username.trim().toLowerCase();
-    const user = await User.findOne({ username: cleanUsername });
+    if (!username) {
+      throw new Error('User identifier is required');
+    }
+    let cleanInput = username.toString().trim().replace(/^@+/, '');
+    try {
+      cleanInput = decodeURIComponent(cleanInput).trim().replace(/^@+/, '');
+    } catch (e) {}
+
+    let user = null;
+
+    // Check if alias for current authenticated user
+    if (currentUserId && ['me', 'profile', 'self', 'my'].includes(cleanInput.toLowerCase())) {
+      user = await User.findById(currentUserId);
+    }
+
+    // Look up by username or name (case-insensitive regex)
+    if (!user) {
+      const escaped = cleanInput.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const compactEscaped = escaped.replace(/\s+/g, '');
+      user = await User.findOne({
+        $or: [
+          { username: { $regex: new RegExp(`^${escaped}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${compactEscaped}$`, 'i') } },
+          { name: { $regex: new RegExp(`^${escaped}$`, 'i') } }
+        ]
+      });
+    }
+
+    // Fallback: look up by ObjectId if cleanInput is a valid MongoDB ID
+    if (!user && mongoose.Types.ObjectId.isValid(cleanInput)) {
+      user = await User.findById(cleanInput);
+    }
 
     if (!user) {
       throw new Error('User not found');

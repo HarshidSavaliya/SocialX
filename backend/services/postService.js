@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Post from '../models/Post.js';
 import User from '../models/User.js';
 import Like from '../models/Like.js';
@@ -190,15 +191,15 @@ class PostService {
       throw new Error('Post not found');
     }
 
-    let hasLiked = false;
-    if (currentUserId) {
-      const likeExists = await Like.exists({ post: post._id, user: currentUserId });
-      hasLiked = !!likeExists;
-    }
+    const [actualLikes, likeExists] = await Promise.all([
+      Like.countDocuments({ post: post._id }),
+      currentUserId ? Like.exists({ post: post._id, user: currentUserId }) : false
+    ]);
 
     return {
       ...post,
-      hasLiked
+      likesCount: actualLikes,
+      hasLiked: !!likeExists
     };
   }
 
@@ -218,6 +219,13 @@ class PostService {
       }
     }
 
+    if (filter === 'reels') {
+      query.$or = [
+        { mediaType: 'video' },
+        { mediaUrl: { $regex: /\.(mp4|webm|mov)/i } }
+      ];
+    }
+
     // Cursor-based pagination support for deep feed queries
     if (cursor) {
       query.createdAt = { $lt: new Date(cursor) };
@@ -234,20 +242,29 @@ class PostService {
       cursor ? null : Post.countDocuments(query)
     ]);
 
-    // Compute hasLiked state for current user
+    // Compute hasLiked state and accurate real user likesCount
     let userLikedPostIds = new Set();
-    if (currentUserId && posts.length > 0) {
-      const postIds = posts.map(p => p._id);
-      const likes = await Like.find({
-        post: { $in: postIds },
-        user: currentUserId
-      }).select('post').lean();
+    const postLikesMap = new Map();
 
-      userLikedPostIds = new Set(likes.map(l => l.post.toString()));
+    if (posts.length > 0) {
+      const postIds = posts.map(p => p._id);
+      const [userLikes, likeCounts] = await Promise.all([
+        currentUserId
+          ? Like.find({ post: { $in: postIds }, user: currentUserId }).select('post').lean()
+          : [],
+        Like.aggregate([
+          { $match: { post: { $in: postIds } } },
+          { $group: { _id: '$post', count: { $sum: 1 } } }
+        ])
+      ]);
+
+      userLikedPostIds = new Set(userLikes.map(l => l.post.toString()));
+      likeCounts.forEach(lc => postLikesMap.set(lc._id.toString(), lc.count));
     }
 
     const enhancedPosts = posts.map(post => ({
       ...post,
+      likesCount: postLikesMap.get(post._id.toString()) ?? 0,
       hasLiked: userLikedPostIds.has(post._id.toString())
     }));
 
@@ -268,8 +285,36 @@ class PostService {
   }
 
   async getUserPosts(username, currentUserId = null, page = 1, limit = 10) {
-    const cleanUsername = username.trim().toLowerCase();
-    const user = await User.findOne({ username: cleanUsername }).select('_id').lean();
+    if (!username) {
+      throw new Error('Username or user ID is required');
+    }
+    let cleanInput = username.toString().trim().replace(/^@+/, '');
+    try {
+      cleanInput = decodeURIComponent(cleanInput).trim().replace(/^@+/, '');
+    } catch (e) {}
+
+    let user = null;
+
+    if (currentUserId && ['me', 'profile', 'self', 'my'].includes(cleanInput.toLowerCase())) {
+      user = await User.findById(currentUserId).select('_id').lean();
+    }
+
+    if (!user) {
+      const escaped = cleanInput.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const compactEscaped = escaped.replace(/\s+/g, '');
+
+      user = await User.findOne({
+        $or: [
+          { username: { $regex: new RegExp(`^${escaped}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${compactEscaped}$`, 'i') } },
+          { name: { $regex: new RegExp(`^${escaped}$`, 'i') } }
+        ]
+      }).select('_id').lean();
+    }
+
+    if (!user && mongoose.Types.ObjectId.isValid(cleanInput)) {
+      user = await User.findById(cleanInput).select('_id').lean();
+    }
 
     if (!user) {
       throw new Error('User not found');
@@ -291,18 +336,27 @@ class PostService {
     ]);
 
     let userLikedPostIds = new Set();
-    if (currentUserId && posts.length > 0) {
-      const postIds = posts.map(p => p._id);
-      const likes = await Like.find({
-        post: { $in: postIds },
-        user: currentUserId
-      }).select('post').lean();
+    const postLikesMap = new Map();
 
-      userLikedPostIds = new Set(likes.map(l => l.post.toString()));
+    if (posts.length > 0) {
+      const postIds = posts.map(p => p._id);
+      const [userLikes, likeCounts] = await Promise.all([
+        currentUserId
+          ? Like.find({ post: { $in: postIds }, user: currentUserId }).select('post').lean()
+          : [],
+        Like.aggregate([
+          { $match: { post: { $in: postIds } } },
+          { $group: { _id: '$post', count: { $sum: 1 } } }
+        ])
+      ]);
+
+      userLikedPostIds = new Set(userLikes.map(l => l.post.toString()));
+      likeCounts.forEach(lc => postLikesMap.set(lc._id.toString(), lc.count));
     }
 
     const enhancedPosts = posts.map(post => ({
       ...post,
+      likesCount: postLikesMap.get(post._id.toString()) ?? 0,
       hasLiked: userLikedPostIds.has(post._id.toString())
     }));
 

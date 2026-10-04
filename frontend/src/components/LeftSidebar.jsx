@@ -2,7 +2,7 @@ import {
   Home,
   User,
   Users,
-  Compass,
+  Clapperboard,
   MessageSquare,
   Bell,
   Search,
@@ -10,7 +10,8 @@ import {
   LogOut,
   LogIn,
   Lock,
-  ShieldCheck
+  ShieldCheck,
+  PlusCircle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -29,6 +30,7 @@ export default function LeftSidebar({
 
   const navItems = [
     { id: 'feed', label: 'News Feed', icon: Home },
+    { id: 'create-post', label: 'Create Post', icon: PlusCircle, requiresAuth: true },
     { id: 'search', label: 'Search', icon: Search },
     {
       id: 'messages',
@@ -62,7 +64,7 @@ export default function LeftSidebar({
           }
         ]
       : []),
-    { id: 'explore', label: 'Explore & Topics', icon: Compass }
+    { id: 'reels', label: 'Reels', icon: Clapperboard, badge: 'New' }
   ];
 
   const userAvatar = getUserAvatar(user);
@@ -126,6 +128,21 @@ export default function LeftSidebar({
             <span>Sign In / Register</span>
           </button>
         </div>
+      )}
+
+      {/* Primary Create Post Action Button */}
+      {isAuthenticated && (
+        <button
+          onClick={() => setActiveView('create-post')}
+          className={`w-full py-3 px-4 rounded-3xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] ${
+            activeView === 'create-post'
+              ? 'bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 text-stone-950 ring-2 ring-amber-400 shadow-amber-500/30'
+              : 'bg-gradient-to-r from-amber-400 via-orange-500 to-amber-600 text-stone-950 hover:brightness-110 shadow-amber-500/20'
+          }`}
+        >
+          <PlusCircle className="w-4 h-4 text-stone-950 stroke-[2.5]" />
+          <span>Create New Post</span>
+        </button>
       )}
 
       {/* Main Navigation List */}

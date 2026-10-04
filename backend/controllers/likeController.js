@@ -10,7 +10,10 @@ export const likePost = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Post liked',
-      data: result
+      data: result,
+      isLiked: result.isLiked,
+      liked: result.liked,
+      likesCount: result.likesCount
     });
   } catch (error) {
     next(error);
@@ -27,9 +30,28 @@ export const unlikePost = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Post unliked',
-      data: result
+      data: result,
+      isLiked: result.isLiked,
+      liked: result.liked,
+      likesCount: result.likesCount
     });
   } catch (error) {
     next(error);
   }
 };
+
+export const getPostLikers = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const likers = await likeService.getLikers(id);
+
+    res.status(200).json({
+      success: true,
+      data: likers,
+      count: likers.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

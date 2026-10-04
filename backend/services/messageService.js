@@ -44,7 +44,7 @@ class MessageService {
   /**
    * Send a new message. Persists to MongoDB, emits via Socket.IO.
    */
-  async sendMessage({ senderId, receiverId, text, mediaUrl = null, mediaType = null }) {
+  async sendMessage({ senderId, receiverId, text, mediaUrl = null, mediaType = null, replyTo = null }) {
     if (!text && !mediaUrl) {
       const err = new Error('Message cannot be empty');
       err.statusCode = 400;
@@ -67,6 +67,7 @@ class MessageService {
       text: text ? text.trim() : '',
       mediaUrl,
       mediaType,
+      replyTo: replyTo || null,
       isRead: false
     });
 
@@ -78,7 +79,12 @@ class MessageService {
 
     const populated = await Message.findById(message._id)
       .populate('sender', 'name username profileImage')
-      .populate('receiver', 'name username profileImage');
+      .populate('receiver', 'name username profileImage')
+      .populate({
+        path: 'replyTo',
+        select: 'text mediaUrl mediaType sender',
+        populate: { path: 'sender', select: 'name username' }
+      });
 
     // Emit real-time message to the conversation room
     emitToConversation(conversationId.toString(), 'message:new', populated);
@@ -180,6 +186,11 @@ class MessageService {
         .skip(skip)
         .limit(limitNum)
         .populate('sender', 'name username profileImage')
+        .populate({
+          path: 'replyTo',
+          select: 'text mediaUrl mediaType sender',
+          populate: { path: 'sender', select: 'name username' }
+        })
         .lean(),
       Message.countDocuments({ conversation: conversationId })
     ]);
@@ -246,8 +257,73 @@ class MessageService {
       throw err;
     }
 
+    const conversationId = message.conversation.toString();
     await message.deleteOne();
-    return { success: true };
+
+    emitToConversation(conversationId, 'message:deleted', {
+      messageId,
+      conversationId
+    });
+
+    return { success: true, messageId };
+  }
+
+  /**
+   * React with an emoji or toggle existing reaction.
+   */
+  async reactToMessage(messageId, userId, emoji) {
+    const message = await Message.findById(messageId);
+    if (!message) {
+      const err = new Error('Message not found');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (!message.reactions) {
+      message.reactions = [];
+    }
+
+    const existingIdx = message.reactions.findIndex(
+      (r) => r.user.toString() === userId.toString()
+    );
+
+    if (existingIdx > -1) {
+      if (message.reactions[existingIdx].emoji === emoji) {
+        // Toggle off if same emoji clicked
+        message.reactions.splice(existingIdx, 1);
+      } else {
+        // Update to new emoji
+        message.reactions[existingIdx].emoji = emoji;
+      }
+    } else {
+      message.reactions.push({ user: userId, emoji });
+    }
+
+    await message.save();
+
+    emitToConversation(message.conversation.toString(), 'message:reaction', {
+      messageId: message._id,
+      reactions: message.reactions,
+      userId,
+      emoji
+    });
+
+    return { messageId: message._id, reactions: message.reactions };
+  }
+
+  /**
+   * Toggle star/favorite status on a message.
+   */
+  async toggleStarMessage(messageId) {
+    const message = await Message.findById(messageId);
+    if (!message) {
+      const err = new Error('Message not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    message.isStarred = !message.isStarred;
+    await message.save();
+    return { messageId: message._id, isStarred: message.isStarred };
   }
 }
 

@@ -33,5 +33,15 @@ export const userService = {
   async getSuggestions(limit = 5) {
     const res = await apiClient.get(`/users/suggestions?limit=${limit}`);
     return res.data.data;
+  },
+
+  async getFollowing(userId) {
+    const res = await apiClient.get(`/users/${userId}/following`);
+    return res.data.data;
+  },
+
+  async getFollowers(userId) {
+    const res = await apiClient.get(`/users/${userId}/followers`);
+    return res.data.data;
   }
 };
