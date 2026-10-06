@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/authService';
+import { e2eeService } from '../services/e2eeService';
+import { secretChatService } from '../services/secretChatService';
 
 const AuthContext = createContext();
 
@@ -48,6 +50,21 @@ export function AuthProvider({ children }) {
     window.addEventListener('socialx:unauthorized', handleUnauthorized);
     return () => window.removeEventListener('socialx:unauthorized', handleUnauthorized);
   }, []);
+
+  // Ensure client-side E2EE Identity key is generated and registered whenever user is authenticated
+  useEffect(() => {
+    const myId = (user?._id || user?.id)?.toString();
+    if (!myId) return;
+
+    e2eeService
+      .getOrCreateIdentityKey(myId)
+      .then((identity) => {
+        if (identity?.publicKeyJwk) {
+          secretChatService.registerPublicKey(identity.publicKeyJwk).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, [user?._id, user?.id]);
 
   const login = async ({ emailOrUsername, password }) => {
     const result = await authService.login({ emailOrUsername, password });

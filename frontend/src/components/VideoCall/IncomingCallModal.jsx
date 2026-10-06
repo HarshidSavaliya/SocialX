@@ -23,7 +23,7 @@ export default function IncomingCallModal() {
           {isAudio ? (
             <>
               <Phone className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Incoming Voice Call</span>
+              <span>Incoming Audio Call</span>
             </>
           ) : (
             <>
@@ -50,7 +50,7 @@ export default function IncomingCallModal() {
           {caller.name || 'Unknown Caller'}
         </h3>
         <p className="text-xs text-white/60 font-medium mt-0.5 mb-8">
-          @{caller.username || 'user'} is {isAudio ? 'voice' : 'video'} calling you...
+          @{caller.username || 'user'} is {isAudio ? 'audio' : 'video'} calling you...
         </p>
 
         {/* Action Buttons: Accept & Reject */}

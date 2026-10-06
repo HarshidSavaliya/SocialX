@@ -4,7 +4,8 @@ import {
   getConversations,
   createConversation,
   getMessages,
-  markAsRead
+  markAsRead,
+  deleteConversation
 } from '../controllers/conversationController.js';
 
 const router = express.Router();
@@ -20,5 +21,8 @@ router.get('/:conversationId/messages', protect, getMessages);
 
 // PATCH /api/conversations/:conversationId/read   - mark messages as read
 router.patch('/:conversationId/read', protect, markAsRead);
+
+// DELETE /api/conversations/:conversationId       - delete entire conversation
+router.delete('/:conversationId', protect, deleteConversation);
 
 export default router;

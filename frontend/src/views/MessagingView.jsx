@@ -48,6 +48,8 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
   const [forwardingMsg, setForwardingMsg] = useState(null);
   const [selectedMessages, setSelectedMessages] = useState([]);
   const [isSelectMode, setIsSelectMode] = useState(false);
+  const [convToDelete, setConvToDelete] = useState(null);
+  const [deletingConv, setDeletingConv] = useState(false);
   const [toastText, setToastText] = useState('');
 
   const showToast = useCallback((text) => {
@@ -168,27 +170,20 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
         });
         messageService.markAsRead(activeConvId).catch(() => { });
       }
-      // Update last message in conversations list
-      setConversations(prev =>
-        prev.map(c => {
-          if (c._id === convId) {
-            return {
-              ...c,
-              lastMessage: msg,
-              lastMessageAt: msg.createdAt,
-              unreadCount: convId === activeConvId ? 0 : (c.unreadCount || 0) + 1
-            };
-          }
-          return c;
-        })
-      );
-      // If conversation not in list, reload
+      // Update last message in conversations list & move to top
       setConversations(prev => {
-        const exists = prev.find(c => c._id === convId);
-        if (!exists) {
-          loadConversations();
+        const target = prev.find(c => c._id === convId);
+        if (!target) {
+          setTimeout(() => loadConversations(), 0);
+          return prev;
         }
-        return prev;
+        const updated = {
+          ...target,
+          lastMessage: msg,
+          lastMessageAt: msg.createdAt,
+          unreadCount: convId === activeConvId ? 0 : (target.unreadCount || 0) + 1
+        };
+        return [updated, ...prev.filter(c => c._id !== convId)];
       });
     };
 
@@ -227,12 +222,26 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
       setMessages(prev => prev.filter(m => m._id !== messageId));
     };
 
+    const handleConversationDeleted = ({ conversationId }) => {
+      setConversations(prev => {
+        const next = prev.filter(c => c._id !== conversationId);
+        if (activeConvId === conversationId) {
+          setActiveConvId(next.length > 0 ? next[0]._id : null);
+        }
+        return next;
+      });
+      if (activeConvId === conversationId) {
+        setMessages([]);
+      }
+    };
+
     socket.on('message:new', handleNewMessage);
     socket.on('typing:user', handleTyping);
     socket.on('typing:stop', handleTypingStop);
     socket.on('message:read', handleRead);
     socket.on('message:reaction', handleReactionUpdate);
     socket.on('message:deleted', handleDeletedMessage);
+    socket.on('conversation:deleted', handleConversationDeleted);
 
     return () => {
       socket.off('message:new', handleNewMessage);
@@ -241,6 +250,7 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
       socket.off('message:read', handleRead);
       socket.off('message:reaction', handleReactionUpdate);
       socket.off('message:deleted', handleDeletedMessage);
+      socket.off('conversation:deleted', handleConversationDeleted);
     };
   }, [socket, activeConvId, user?._id, user?.id, loadConversations]);
 
@@ -384,6 +394,32 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
     }
   };
 
+  const handleDeleteConversation = async () => {
+    if (!convToDelete?._id || deletingConv) return;
+    setDeletingConv(true);
+    const targetId = convToDelete._id;
+    try {
+      await messageService.deleteConversation(targetId);
+      setConversations(prev => {
+        const next = prev.filter(c => c._id !== targetId);
+        if (activeConvId === targetId) {
+          setActiveConvId(next.length > 0 ? next[0]._id : null);
+        }
+        return next;
+      });
+      if (activeConvId === targetId) {
+        setMessages([]);
+      }
+      setConvToDelete(null);
+      showToast('Conversation deleted');
+    } catch (e) {
+      console.warn('Delete conversation error:', e.message);
+      showToast(e.response?.data?.message || 'Failed to delete conversation');
+    } finally {
+      setDeletingConv(false);
+    }
+  };
+
   // Send message
   const handleSend = async (e) => {
     if (e) e.preventDefault();
@@ -404,18 +440,32 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
     }
     try {
       const msg = await messageService.sendMessage({
-        receiverId: activeOther._id,
+        conversationId: activeConvId,
+        receiverId: activeOther._id || activeOther.id,
         text,
         file: fileToSend,
         replyTo: replyToId,
         clientMessageId
       });
-      setMessages(prev => {
-        if (prev.some(m => m._id === msg._id || (m.clientMessageId && m.clientMessageId === msg.clientMessageId))) {
-          return prev.map(m => (m.clientMessageId === msg.clientMessageId ? msg : m));
-        }
-        return [...prev, msg];
-      });
+      if (msg) {
+        setMessages(prev => {
+          if (prev.some(m => m._id === msg._id || (m.clientMessageId && m.clientMessageId === msg.clientMessageId))) {
+            return prev.map(m => (m.clientMessageId === msg.clientMessageId ? msg : m));
+          }
+          return [...prev, msg];
+        });
+        setConversations(prev => {
+          const convId = activeConvId;
+          const target = prev.find(c => c._id === convId);
+          if (!target) return prev;
+          const updated = {
+            ...target,
+            lastMessage: msg,
+            lastMessageAt: msg.createdAt || new Date().toISOString()
+          };
+          return [updated, ...prev.filter(c => c._id !== convId)];
+        });
+      }
     } catch (e) {
       console.warn('Send message error:', e.message);
       setMessageInput(text);
@@ -596,9 +646,9 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                 <div
                   key={conv._id}
                   onClick={() => { setActiveConvId(conv._id); setMobileView('chat'); }}
-                  className={`p-3.5 flex items-center gap-3 cursor-pointer transition-all border-b ${cardBorder} ${isSelected
-                      ? isDark ? 'bg-white/[0.07]' : 'bg-slate-100/90'
-                      : isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50'
+                  className={`group p-3.5 flex items-center gap-3 cursor-pointer transition-all border-b ${cardBorder} ${isSelected
+                    ? isDark ? 'bg-white/[0.07]' : 'bg-slate-100/90'
+                    : isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50'
                     }`}
                 >
                   <div className="relative flex-shrink-0">
@@ -621,11 +671,24 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                       {conv.lastMessage?.text || 'Start a conversation'}
                     </p>
                   </div>
-                  {conv.unreadCount > 0 && (
-                    <span className="flex-shrink-0 min-w-[18px] h-4.5 px-1 rounded-full bg-indigo-500 text-white text-[10px] font-bold flex items-center justify-center">
-                      {conv.unreadCount}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {conv.unreadCount > 0 && (
+                      <span className="min-w-[18px] h-4.5 px-1 rounded-full bg-indigo-500 text-white text-[10px] font-bold flex items-center justify-center">
+                        {conv.unreadCount}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConvToDelete(conv);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
+                      title="Delete Conversation"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               );
             })
@@ -680,36 +743,42 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                 </div>
               </div>
 
-              {/* Voice Call Action Button */}
+              {/* Audio Call Action Button */}
               {activeOther && (
                 <button
-                  onClick={() =>
+                  onClick={() => {
+                    if (!isOtherOnline) {
+                      showToast(`${activeOther?.name || 'User'} is currently offline`);
+                    }
                     startCall({
                       receiver: activeOther,
                       conversationId: activeConvId,
                       callType: 'audio'
-                    })
-                  }
+                    });
+                  }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-all shadow-xs cursor-pointer"
-                  title="Start Voice Call"
+                  title={isOtherOnline ? "Start Audio Call" : `${activeOther?.name || 'User'} is offline (Click to call anyway)`}
                 >
                   <Phone className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="hidden sm:inline">Voice Call</span>
+                  <span className="hidden sm:inline">Audio Call</span>
                 </button>
               )}
 
               {/* Video Call Action Button (Agora RTC) */}
               {activeOther && (
                 <button
-                  onClick={() =>
+                  onClick={() => {
+                    if (!isOtherOnline) {
+                      showToast(`${activeOther?.name || 'User'} is currently offline`);
+                    }
                     startCall({
                       receiver: activeOther,
                       conversationId: activeConvId,
                       callType: 'video'
-                    })
-                  }
+                    });
+                  }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 transition-all shadow-xs cursor-pointer"
-                  title="Start Agora Video Call"
+                  title={isOtherOnline ? "Start Video Call" : `${activeOther?.name || 'User'} is offline (Click to call anyway)`}
                 >
                   <Video className="w-3.5 h-3.5 text-indigo-400" />
                   <span className="hidden sm:inline">Video Call</span>
@@ -726,6 +795,19 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                   <span className="hidden sm:inline">Secret Mode</span>
                 </button>
               )}
+
+              {/* Delete Conversation Action Button */}
+              {activeConv && (
+                <button
+                  type="button"
+                  onClick={() => setConvToDelete(activeConv)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/25 transition-all shadow-xs cursor-pointer"
+                  title="Delete Conversation"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline">Delete Chat</span>
+                </button>
+              )}
             </div>
 
             {/* Select Mode Bar */}
@@ -738,7 +820,7 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                       type="button"
                       onClick={async () => {
                         for (const id of selectedMessages) {
-                          await messageService.deleteMessage(id).catch(() => {});
+                          await messageService.deleteMessage(id).catch(() => { });
                         }
                         setMessages(prev => prev.filter(m => !selectedMessages.includes(m._id)));
                         setSelectedMessages([]);
@@ -800,9 +882,8 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                   return (
                     <div
                       key={msg._id}
-                      className={`flex flex-col w-full ${isMe ? 'items-end' : 'items-start'} ${
-                        isSelectMode && selectedMessages.includes(msg._id) ? 'bg-amber-500/5 rounded-2xl p-1' : ''
-                      }`}
+                      className={`flex flex-col w-full ${isMe ? 'items-end' : 'items-start'} ${isSelectMode && selectedMessages.includes(msg._id) ? 'bg-amber-500/5 rounded-2xl p-1' : ''
+                        }`}
                     >
                       <div className={`relative group/msg flex items-center gap-1.5 max-w-[85%] sm:max-w-[70%] ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                         {/* Select Mode Checkbox */}
@@ -810,11 +891,10 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                           <button
                             type="button"
                             onClick={() => handleSelect(msg)}
-                            className={`p-1 rounded-lg border transition-colors cursor-pointer flex-shrink-0 ${
-                              selectedMessages.includes(msg._id)
-                                ? 'bg-amber-500 border-amber-500 text-stone-950 font-bold'
-                                : 'border-white/20 hover:border-white/40'
-                            }`}
+                            className={`p-1 rounded-lg border transition-colors cursor-pointer flex-shrink-0 ${selectedMessages.includes(msg._id)
+                              ? 'bg-amber-500 border-amber-500 text-stone-950 font-bold'
+                              : 'border-white/20 hover:border-white/40'
+                              }`}
                           >
                             <Check className="w-3.5 h-3.5" />
                           </button>
@@ -825,20 +905,19 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            setActiveMenuMsgId(activeMenuMsgId === msg._id ? null : msg._id);
+                            handleOpenContextMenu(e, msg, isMe);
                           }}
                           className={`w-full rounded-2xl p-3 text-sm leading-relaxed shadow-xs transition-transform active:scale-[0.99] select-text ${isMe
-                              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-stone-950 font-medium rounded-tr-xs shadow-amber-500/15'
-                              : isDark ? 'bg-white/[0.08] text-slate-100 rounded-tl-xs border border-white/10' : 'bg-slate-100 text-slate-800 rounded-tl-xs border border-slate-200/80'
+                            ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-stone-950 font-medium rounded-tr-xs shadow-amber-500/15'
+                            : isDark ? 'bg-white/[0.08] text-slate-100 rounded-tl-xs border border-white/10' : 'bg-slate-100 text-slate-800 rounded-tl-xs border border-slate-200/80'
                             }`}
                         >
                           {/* Quoted parent reply if present */}
                           {msg.replyTo && (
-                            <div className={`mb-2 p-2 rounded-xl text-xs border-l-2 border-amber-400 ${
-                              isMe
-                                ? 'bg-black/20 text-stone-950/80'
-                                : isDark ? 'bg-white/[0.05] text-slate-300' : 'bg-slate-200/60 text-slate-700'
-                            }`}>
+                            <div className={`mb-2 p-2 rounded-xl text-xs border-l-2 border-amber-400 ${isMe
+                              ? 'bg-black/20 text-stone-950/80'
+                              : isDark ? 'bg-white/[0.05] text-slate-300' : 'bg-slate-200/60 text-slate-700'
+                              }`}>
                               <p className="font-bold text-[10px] text-amber-500">{msg.replyTo.sender?.name || 'Someone'}</p>
                               <p className="truncate text-[11px] opacity-90">{msg.replyTo.text || (msg.replyTo.mediaUrl ? 'Attachment' : '')}</p>
                             </div>
@@ -869,9 +948,8 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                           <button
                             type="button"
                             onClick={(e) => handleOpenContextMenu(e, msg, isMe)}
-                            className={`opacity-0 group-hover/msg:opacity-100 p-1.5 rounded-full transition-all text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer flex-shrink-0 ${
-                              activeMenu?.msg?._id === msg._id ? 'opacity-100 bg-white/10 text-white' : ''
-                            }`}
+                            className={`opacity-0 group-hover/msg:opacity-100 p-1.5 rounded-full transition-all text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer flex-shrink-0 ${activeMenu?.msg?._id === msg._id ? 'opacity-100 bg-white/10 text-white' : ''
+                              }`}
                             title="Message options"
                           >
                             <MoreVertical className="w-3.5 h-3.5" />
@@ -1129,16 +1207,16 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                 onChange={handleInputChange}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) handleSend(e); }}
                 className={`flex-1 py-2.5 px-4 rounded-full text-sm outline-none transition-colors ${isDark
-                    ? 'bg-white/[0.06] text-white placeholder-slate-500 border border-white/10 focus:border-white/20'
-                    : 'bg-slate-100 text-slate-900 placeholder-slate-400 border border-slate-200 focus:border-slate-300'
+                  ? 'bg-white/[0.06] text-white placeholder-slate-500 border border-white/10 focus:border-white/20'
+                  : 'bg-slate-100 text-slate-900 placeholder-slate-400 border border-slate-200 focus:border-slate-300'
                   }`}
               />
               <button
                 type="submit"
                 disabled={(!messageInput.trim() && !selectedFile) || sending}
                 className={`p-2.5 rounded-full transition-all ${(messageInput.trim() || selectedFile) && !sending
-                    ? isDark ? 'bg-white text-slate-900 hover:bg-slate-100 shadow-md cursor-pointer' : 'bg-slate-900 text-white hover:bg-black shadow-md cursor-pointer'
-                    : 'opacity-40 cursor-not-allowed bg-slate-200 dark:bg-white/10 text-slate-400'
+                  ? isDark ? 'bg-white text-slate-900 hover:bg-slate-100 shadow-md cursor-pointer' : 'bg-slate-900 text-white hover:bg-black shadow-md cursor-pointer'
+                  : 'opacity-40 cursor-not-allowed bg-slate-200 dark:bg-white/10 text-slate-400'
                   }`}
               >
                 {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -1212,6 +1290,51 @@ export default function MessagingView({ onOpenSecretChat, onNavigateToProfile })
                   );
                 })
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Conversation Confirmation Modal */}
+      {convToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className={`relative w-full max-w-sm rounded-3xl border p-6 shadow-2xl transition-all ${
+            isDark ? 'bg-[#12141c] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            <div className="flex items-center gap-3.5 mb-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-rose-500/15 border border-rose-500/25 flex items-center justify-center text-rose-400 flex-shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-bold tracking-tight">Delete Conversation?</h3>
+                <p className="text-xs text-slate-400 truncate">
+                  Chat with {convToDelete.otherUser?.name || 'this user'}
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+              This will permanently delete this conversation and all its messages for you. This action cannot be undone.
+            </p>
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={deletingConv}
+                onClick={() => setConvToDelete(null)}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                  isDark ? 'bg-white/10 hover:bg-white/15 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                }`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingConv}
+                onClick={handleDeleteConversation}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 active:scale-95 text-white transition-all shadow-md shadow-rose-600/30 cursor-pointer disabled:opacity-50"
+              >
+                {deletingConv ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                <span>{deletingConv ? 'Deleting...' : 'Delete'}</span>
+              </button>
             </div>
           </div>
         </div>

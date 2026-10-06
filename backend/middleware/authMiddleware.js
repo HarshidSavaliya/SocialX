@@ -94,7 +94,20 @@ export const requireSecretAccess = async (req, res, next) => {
     }
 
     const conversation = await SecretConversation.findById(conversationId);
-    if (!conversation || !conversation.isActive) {
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Secret conversation not found'
+      });
+    }
+
+    if (!conversation.isActive) {
+      if (req.originalUrl?.endsWith('/exit') || req.path?.endsWith('/exit')) {
+        return res.status(200).json({
+          success: true,
+          message: 'Secret conversation already closed and wiped'
+        });
+      }
       return res.status(404).json({
         success: false,
         message: 'Secret conversation not found or has been closed'

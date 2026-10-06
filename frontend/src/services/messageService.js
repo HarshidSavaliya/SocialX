@@ -28,12 +28,13 @@ export const messageService = {
     return res.data.data;
   },
 
-  async sendMessage({ receiverId, text, mediaUrl, mediaType, file, replyTo, clientMessageId }) {
+  async sendMessage({ conversationId, receiverId, text, mediaUrl, mediaType, file, replyTo, clientMessageId }) {
     const id = clientMessageId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
     if (file) {
       const formData = new FormData();
-      formData.append('receiverId', receiverId);
+      if (conversationId) formData.append('conversationId', conversationId);
+      if (receiverId) formData.append('receiverId', receiverId);
       if (text) formData.append('text', text);
       if (replyTo) formData.append('replyTo', replyTo);
       formData.append('clientMessageId', id);
@@ -41,10 +42,11 @@ export const messageService = {
       const res = await apiClient.post('/messages', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      return res.data.data.message;
+      return res.data.data?.message || res.data.message || res.data.data;
     }
 
     const res = await apiClient.post('/messages', {
+      conversationId,
       receiverId,
       text,
       mediaUrl,
@@ -52,7 +54,7 @@ export const messageService = {
       replyTo,
       clientMessageId: id
     });
-    return res.data.data.message;
+    return res.data.data?.message || res.data.message || res.data.data;
   },
 
   async markAsRead(conversationId) {
@@ -62,6 +64,11 @@ export const messageService = {
 
   async deleteMessage(messageId) {
     const res = await apiClient.delete(`/messages/${messageId}`);
+    return res.data;
+  },
+
+  async deleteConversation(conversationId) {
+    const res = await apiClient.delete(`/conversations/${conversationId}`);
     return res.data;
   },
 

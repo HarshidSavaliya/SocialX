@@ -42,3 +42,13 @@ export const markAsRead = async (req, res, next) => {
     next(err);
   }
 };
+
+export const deleteConversation = async (req, res, next) => {
+  try {
+    const { conversationId } = req.params;
+    const result = await messageService.deleteConversation(conversationId, req.user._id);
+    res.json({ success: true, message: 'Conversation deleted successfully', data: result });
+  } catch (err) {
+    next(err);
+  }
+};

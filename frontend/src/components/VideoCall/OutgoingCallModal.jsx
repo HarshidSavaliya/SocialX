@@ -33,7 +33,7 @@ export default function OutgoingCallModal() {
               : callStatus === 'missed'
               ? 'No Answer'
               : isAudio
-              ? 'Voice Calling...'
+              ? 'Audio Calling...'
               : 'Video Calling...'}
           </span>
         </div>

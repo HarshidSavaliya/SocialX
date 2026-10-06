@@ -201,6 +201,27 @@ export const initSocket = (httpServer) => {
       }
     });
 
+    socket.on('secret:key:announce', ({ conversationId, publicKey }) => {
+      if (conversationId && publicKey) {
+        socket.to(`secret:conversation:${conversationId}`).emit('secret:key:peer', {
+          conversationId,
+          userId,
+          publicKey
+        });
+      }
+    });
+
+    socket.on('secret:conversation:end', async ({ conversationId }) => {
+      if (conversationId) {
+        try {
+          const secretChatService = (await import('../services/secretChatService.js')).default;
+          await secretChatService.exitAndWipe(conversationId);
+        } catch (err) {
+          console.warn('Socket secret conversation end error:', err.message);
+        }
+      }
+    });
+
     // ==========================================
     // 3. VIDEO CALL SIGNALING (Phase 5: Agora RTC Control)
     // ==========================================

@@ -42,6 +42,10 @@ const secretMessageSchema = new mongoose.Schema(
       type: String,
       default: null
     },
+    senderPublicKey: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null
+    },
     encryptedMetadata: {
       type: String,
       default: null

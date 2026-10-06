@@ -4,7 +4,7 @@ import User from '../models/User.js';
 import SecretConversation from '../models/SecretConversation.js';
 import SecretMessage from '../models/SecretMessage.js';
 import cloudinaryService from './cloudinaryService.js';
-import { getIO } from '../socket/socketServer.js';
+import { getIO, emitToUser } from '../socket/socketServer.js';
 
 // In-memory rate limiting for PIN verification: key: `${conversationId}:${userId}` -> { count, lockedUntil }
 const pinAttempts = new Map();
@@ -75,8 +75,31 @@ class SecretChatService {
       { new: true }
     ).select('name username e2ePublicKey e2ePublicKeyUpdatedAt');
 
-    if (!user) {
-      throw new Error('User not found');
+    // Notify all active secret chat rooms/peers about the updated public key
+    try {
+      const activeConvs = await SecretConversation.find({
+        participants: userId,
+        isActive: true
+      }).select('_id participants');
+
+      for (const c of activeConvs) {
+        this.emitToSecretRoom(c._id, 'secret:key:peer', {
+          conversationId: c._id.toString(),
+          userId: userId.toString(),
+          publicKey: keyString
+        });
+        c.participants.forEach((p) => {
+          if (p.toString() !== userId.toString()) {
+            emitToUser(p.toString(), 'secret:key:peer', {
+              conversationId: c._id.toString(),
+              userId: userId.toString(),
+              publicKey: keyString
+            });
+          }
+        });
+      }
+    } catch (notifyErr) {
+      console.warn('Secret key update notification warning:', notifyErr.message);
     }
 
     return {
@@ -330,6 +353,7 @@ class SecretChatService {
     ciphertext = '',
     iv = null,
     authTag = null,
+    senderPublicKey = null,
     encryptedMetadata = null,
     mediaUrl: inputMediaUrl = null,
     mediaPublicId: inputMediaPublicId = null,
@@ -402,6 +426,7 @@ class SecretChatService {
       ciphertext: ciphertext || '',
       iv: iv || null,
       authTag: authTag || null,
+      senderPublicKey: senderPublicKey || null,
       encryptedMetadata: encryptedMetadata || null,
       mediaUrl,
       mediaPublicId,
@@ -423,6 +448,11 @@ class SecretChatService {
 
     // Broadcast E2EE ciphertext to dedicated secret room
     this.emitToSecretRoom(conversationId, 'secret:message:new', populatedMessage);
+
+    // Also emit to participants' personal user rooms to guarantee instant delivery
+    conversation.participants.forEach((p) => {
+      emitToUser(p.toString(), 'secret:message:new', populatedMessage);
+    });
 
     return populatedMessage;
   }
@@ -542,8 +572,11 @@ class SecretChatService {
    */
   async exitAndWipe(conversationId) {
     const conversation = await SecretConversation.findById(conversationId);
-    if (!conversation) {
-      throw new Error('Secret conversation not found');
+    if (!conversation || !conversation.isActive) {
+      return {
+        success: true,
+        message: 'Secret chat messages wiped and conversation closed successfully'
+      };
     }
 
     // Find all messages to remove Cloudinary assets
@@ -561,8 +594,16 @@ class SecretChatService {
     await conversation.save();
 
     this.emitToSecretRoom(conversationId, 'secret:conversation:wiped', {
-      conversationId,
+      conversationId: conversationId.toString(),
       message: 'Secret conversation was closed and all messages have been wiped.'
+    });
+
+    // Notify both participants via personal user socket room to end chat on both sides
+    conversation.participants.forEach((p) => {
+      emitToUser(p.toString(), 'secret:conversation:wiped', {
+        conversationId: conversationId.toString(),
+        message: 'Secret conversation was closed and all messages have been wiped.'
+      });
     });
 
     return {

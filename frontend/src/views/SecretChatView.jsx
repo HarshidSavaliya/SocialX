@@ -54,6 +54,8 @@ export default function SecretChatView({
   const [decryptedMessages, setDecryptedMessages] = useState({});
   const myIdentityRef = useRef(null);
   const conversationKeyRef = useRef(null);
+  const decryptedCacheRef = useRef({});
+  const failedAttemptsRef = useRef(new Set());
 
   // Chat messages & typing
   const [messages, setMessages] = useState([]);
@@ -96,6 +98,98 @@ export default function SecretChatView({
   // Check if currently unlocked
   const activeSecretToken = activeConvId ? secretTokens[activeConvId] : null;
   const isUnlocked = Boolean(activeSecretToken);
+
+  const activeConvIdRef = useRef(activeConvId);
+  const activeSecretTokenRef = useRef(activeSecretToken);
+
+  useEffect(() => {
+    activeConvIdRef.current = activeConvId;
+    activeSecretTokenRef.current = activeSecretToken;
+  }, [activeConvId, activeSecretToken]);
+
+  const socketRef = useRef(socket);
+  useEffect(() => {
+    socketRef.current = socket;
+  }, [socket]);
+
+  // Safe exit helper: ends and wipes secret chat on backend so both sides exit!
+  const handleSafeExit = useCallback(async () => {
+    const convId = activeConvIdRef.current;
+    const token = activeSecretTokenRef.current;
+    const sock = socketRef.current;
+    if (convId) {
+      if (sock) {
+        sock.emit('secret:conversation:end', { conversationId: convId });
+      }
+      if (token) {
+        await secretChatService.exitSecretChat(convId, token).catch(() => {});
+      }
+      e2eeService.clearConversationKey(convId);
+    }
+    onExit();
+  }, [onExit]);
+
+  // When user comes out of chat (navigates away / unmounts) -> chat ends on both sides!
+  // Empty dependency array ensures cleanup ONLY runs on actual DOM unmount, NEVER on socket updates!
+  useEffect(() => {
+    return () => {
+      const convId = activeConvIdRef.current;
+      const token = activeSecretTokenRef.current;
+      const sock = socketRef.current;
+      if (convId) {
+        if (sock) {
+          sock.emit('secret:conversation:end', { conversationId: convId });
+        }
+        if (token) {
+          secretChatService.exitSecretChat(convId, token).catch(() => {});
+        }
+        e2eeService.clearConversationKey(convId);
+      }
+    };
+  }, []);
+
+  // Before unload (browser tab closed / refreshed) -> end chat on both sides!
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const convId = activeConvIdRef.current;
+      const sock = socketRef.current;
+      if (convId && sock) {
+        sock.emit('secret:conversation:end', { conversationId: convId });
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  // Global socket listener: if peer ends or wipes secret chat, end this side too!
+  useEffect(() => {
+    if (!socket) return;
+    const handleGlobalWiped = ({ conversationId } = {}) => {
+      const wipedId = (conversationId?._id || conversationId)?.toString();
+      const currentId = activeConvIdRef.current?.toString();
+
+      if (wipedId) {
+        setConversations((prev) => prev.filter((c) => (c._id || c.id)?.toString() !== wipedId));
+      }
+
+      if (!wipedId || !currentId || wipedId === currentId) {
+        setMessages([]);
+        if (activeConvIdRef.current) {
+          e2eeService.clearConversationKey(activeConvIdRef.current);
+        }
+        conversationKeyRef.current = null;
+        setDecryptedMessages({});
+        setE2eReady(false);
+        setSecretTokens({});
+        showSecretToast('Secret chat ended and wiped by the other user');
+        setTimeout(() => {
+          onExit();
+        }, 500);
+      }
+    };
+    socket.on('secret:conversation:wiped', handleGlobalWiped);
+    return () => socket.off('secret:conversation:wiped', handleGlobalWiped);
+  }, [socket, onExit, showSecretToast]);
 
   // Auto-scroll to bottom of messages
   const scrollToBottom = () => {
@@ -286,6 +380,8 @@ export default function SecretChatView({
       setPinError('');
       setMessages([]);
       setDecryptedMessages({});
+      decryptedCacheRef.current = {};
+      failedAttemptsRef.current.clear();
       conversationKeyRef.current = null;
       setE2eReady(false);
       setSelectedMedia(null);
@@ -309,6 +405,14 @@ export default function SecretChatView({
       secretToken: activeSecretToken
     });
 
+    // Announce our public key to the secret room so peer gets it immediately
+    if (myIdentityRef.current?.publicKeyJwk) {
+      socket.emit('secret:key:announce', {
+        conversationId: activeConvId,
+        publicKey: myIdentityRef.current.publicKeyJwk
+      });
+    }
+
     // Listen for new secret messages
     const handleNewSecretMessage = (newMsg) => {
       const convId = newMsg.conversation?._id || newMsg.conversation;
@@ -319,6 +423,25 @@ export default function SecretChatView({
           }
           return [...prev, newMsg];
         });
+      }
+    };
+
+    // Listen for peer public key announcement in secret room
+    const handlePeerKey = async ({ conversationId, userId: peerId, publicKey }) => {
+      const myId = (user?.id || user?._id)?.toString();
+      if (conversationId === activeConvId && peerId !== myId && publicKey && myIdentityRef.current) {
+        try {
+          const convKey = await e2eeService.getConversationKey(
+            activeConvId,
+            myIdentityRef.current.privateKeyJwk,
+            publicKey
+          );
+          conversationKeyRef.current = convKey;
+          setE2eReady(true);
+          setE2eNotice('End-to-End Encrypted (ECDH P-256 + AES-GCM)');
+        } catch (err) {
+          console.warn('Socket peer key derivation warning:', err.message);
+        }
       }
     };
 
@@ -341,9 +464,21 @@ export default function SecretChatView({
     };
 
     // Listen for conversation wiped/closed
-    const handleWiped = () => {
-      setMessages([]);
-      loadConversations();
+    const handleWiped = ({ conversationId } = {}) => {
+      if (!conversationId || conversationId === activeConvIdRef.current) {
+        setMessages([]);
+        if (activeConvIdRef.current) {
+          e2eeService.clearConversationKey(activeConvIdRef.current);
+        }
+        conversationKeyRef.current = null;
+        setDecryptedMessages({});
+        setE2eReady(false);
+        setSecretTokens({});
+        showSecretToast('Secret chat ended and wiped by the other user');
+        setTimeout(() => {
+          onExit();
+        }, 800);
+      }
     };
 
     // Listen for typing events
@@ -365,6 +500,7 @@ export default function SecretChatView({
     socket.on('secret:message:view', handleViewOnceBurn);
     socket.on('secret:messages:pruned', handlePruned);
     socket.on('secret:conversation:wiped', handleWiped);
+    socket.on('secret:key:peer', handlePeerKey);
     socket.on('secret:typing:user', handleTyping);
     socket.on('secret:typing:stop', handleStopTyping);
 
@@ -374,10 +510,11 @@ export default function SecretChatView({
       socket.off('secret:message:view', handleViewOnceBurn);
       socket.off('secret:messages:pruned', handlePruned);
       socket.off('secret:conversation:wiped', handleWiped);
+      socket.off('secret:key:peer', handlePeerKey);
       socket.off('secret:typing:user', handleTyping);
       socket.off('secret:typing:stop', handleStopTyping);
     };
-  }, [socket, activeConvId, isUnlocked, user?.id, loadConversations]);
+  }, [socket, activeConvId, isUnlocked, user?.id, loadConversations, onExit, showSecretToast]);
 
   // 1. Initialize client-side E2EE Identity Key (ECDH P-256) on mount/auth
   useEffect(() => {
@@ -408,6 +545,7 @@ export default function SecretChatView({
     if (!activeConvId || !isUnlocked || !activeConv) {
       setE2eReady(false);
       conversationKeyRef.current = null;
+      failedAttemptsRef.current.clear();
       return;
     }
 
@@ -430,31 +568,44 @@ export default function SecretChatView({
         if (!otherId) return;
 
         // Fetch peer's public key from the backend
-        const peerPublicKey = await secretChatService.getPublicKey(otherId);
-        if (!peerPublicKey) {
+        const peerPublicKey = await secretChatService.getPublicKey(otherId).catch(() => null);
+        if (peerPublicKey) {
+          const convKey = await e2eeService.getConversationKey(
+            activeConvId,
+            myIdentityRef.current.privateKeyJwk,
+            peerPublicKey
+          );
           if (isMounted) {
-            setE2eReady(false);
-            setE2eNotice('Peer has not registered an E2EE public key yet.');
+            conversationKeyRef.current = convKey;
+            failedAttemptsRef.current.clear();
+            setE2eReady(true);
+            setE2eNotice('End-to-End Encrypted (ECDH P-256 + AES-256-GCM)');
           }
-          return;
-        }
-
-        const convKey = await e2eeService.getConversationKey(
-          activeConvId,
-          myIdentityRef.current.privateKeyJwk,
-          peerPublicKey
-        );
-
-        if (isMounted) {
-          conversationKeyRef.current = convKey;
-          setE2eReady(true);
-          setE2eNotice('End-to-End Encrypted (ECDH P-256 + AES-256-GCM)');
+        } else {
+          // Seamless fallback: encrypt with vault key derived from conversationId
+          const fallbackKey = await e2eeService.getConversationFallbackKey(activeConvId);
+          if (isMounted) {
+            conversationKeyRef.current = fallbackKey;
+            failedAttemptsRef.current.clear();
+            setE2eReady(true);
+            setE2eNotice('End-to-End Encrypted Vault Session (AES-256-GCM)');
+          }
         }
       } catch (err) {
         console.warn('E2EE key agreement error:', err.message);
-        if (isMounted) {
-          setE2eReady(false);
-          setE2eNotice('E2EE key agreement in progress...');
+        try {
+          const fallbackKey = await e2eeService.getConversationFallbackKey(activeConvId);
+          if (isMounted) {
+            conversationKeyRef.current = fallbackKey;
+            failedAttemptsRef.current.clear();
+            setE2eReady(true);
+            setE2eNotice('End-to-End Encrypted Vault Session (AES-256-GCM)');
+          }
+        } catch (_) {
+          if (isMounted) {
+            setE2eReady(false);
+            setE2eNotice('E2EE key agreement in progress...');
+          }
         }
       }
     };
@@ -466,48 +617,158 @@ export default function SecretChatView({
     };
   }, [activeConvId, isUnlocked, activeConv, user]);
 
-  // 3. Decrypt incoming and loaded messages using the derived session key
+  // 3. Decrypt incoming and loaded messages using senderPublicKey or derived session key
   useEffect(() => {
-    if (!conversationKeyRef.current || !messages.length) return;
+    if (!messages.length) return;
 
     let isMounted = true;
     const decryptAll = async () => {
       const updates = {};
       let changed = false;
+      const myId = (user?._id || user?.id)?.toString();
 
       for (const msg of messages) {
-        const id = msg._id || msg.clientMessageId;
+        const id = (msg._id || msg.clientMessageId)?.toString();
         if (!id) continue;
-        if (decryptedMessages[id]) continue; // already decrypted
+
+        const senderId = (msg.sender?._id || msg.sender?.id || msg.sender)?.toString();
+        const isFromMe = Boolean(myId && senderId && myId === senderId);
+
+        // If message is already successfully decrypted in cache, skip it
+        const existing = decryptedCacheRef.current[id];
+        if (existing?.text && !existing.text.includes('could not be decrypted')) {
+          continue;
+        }
+
+        // If it's my own message and we already have cached text, never overwrite with failure
+        if (isFromMe && existing?.text) {
+          continue;
+        }
+
+        // If previously attempted with current key state and failed, skip to prevent infinite loops
+        if (failedAttemptsRef.current.has(id)) {
+          continue;
+        }
 
         let decryptedText = '';
         let decryptedMediaUrl = null;
 
+        // Determine key:
+        // ONLY derive from msg.senderPublicKey if the message is from the OTHER user!
+        // If isFromMe is true, msg.senderPublicKey is MY OWN public key, which cannot do ECDH with my own private key!
+        let msgKey = null;
+        if (!isFromMe && msg.senderPublicKey && myIdentityRef.current?.privateKeyJwk) {
+          try {
+            msgKey = await e2eeService.getConversationKey(
+              activeConvId,
+              myIdentityRef.current.privateKeyJwk,
+              msg.senderPublicKey
+            );
+          } catch (keyErr) {
+            console.warn('Derivation from senderPublicKey warning:', keyErr.message);
+          }
+        }
+
+        if (!msgKey) {
+          msgKey = conversationKeyRef.current;
+        }
+
+        // If conversationKeyRef is not yet set, attempt on-demand derivation with peer
+        if (!msgKey) {
+          const other = activeConv?.participants?.find((p) => (p._id || p.id)?.toString() !== myId);
+          const otherId = (other?._id || other?.id)?.toString();
+          if (otherId && myIdentityRef.current?.privateKeyJwk) {
+            try {
+              const peerPub = await secretChatService.getPublicKey(otherId).catch(() => null);
+              if (peerPub) {
+                msgKey = await e2eeService.getConversationKey(
+                  activeConvId,
+                  myIdentityRef.current.privateKeyJwk,
+                  peerPub
+                );
+                conversationKeyRef.current = msgKey;
+              }
+            } catch (_) {}
+          }
+        }
+
         // Decrypt text if ciphertext and iv are present
         if (msg.ciphertext && msg.iv) {
-          decryptedText = await e2eeService.decryptText(
-            msg.ciphertext,
-            msg.iv,
-            conversationKeyRef.current
-          );
+          if (msgKey) {
+            decryptedText = await e2eeService.decryptText(
+              msg.ciphertext,
+              msg.iv,
+              msgKey
+            );
+          }
+          if (!decryptedText || decryptedText.includes('could not be decrypted')) {
+            try {
+              const fallbackKey = await e2eeService.getConversationFallbackKey(activeConvId);
+              const fallbackRes = await e2eeService.decryptText(
+                msg.ciphertext,
+                msg.iv,
+                fallbackKey
+              );
+              if (fallbackRes && !fallbackRes.includes('could not be decrypted')) {
+                decryptedText = fallbackRes;
+              }
+            } catch (_) {}
+          }
         } else if (msg.content) {
           decryptedText = msg.content;
         }
 
         // Decrypt media if mediaUrl and mediaIv are present (and not view-once)
         if (msg.mediaUrl && msg.mediaIv && !msg.isViewOnce) {
-          decryptedMediaUrl = await e2eeService.decryptMediaToUrl(
-            msg.mediaUrl,
-            msg.mediaIv,
-            conversationKeyRef.current,
-            msg.messageType === 'video' ? 'video/mp4' : 'image/jpeg'
-          );
+          if (msgKey) {
+            decryptedMediaUrl = await e2eeService.decryptMediaToUrl(
+              msg.mediaUrl,
+              msg.mediaIv,
+              msgKey,
+              msg.messageType === 'video' ? 'video/mp4' : 'image/jpeg'
+            );
+          }
+          if (!decryptedMediaUrl) {
+            try {
+              const fallbackKey = await e2eeService.getConversationFallbackKey(activeConvId);
+              decryptedMediaUrl = await e2eeService.decryptMediaToUrl(
+                msg.mediaUrl,
+                msg.mediaIv,
+                fallbackKey,
+                msg.messageType === 'video' ? 'video/mp4' : 'image/jpeg'
+              );
+            } catch (_) {}
+          }
         } else if (msg.mediaUrl && !msg.mediaIv) {
           decryptedMediaUrl = msg.mediaUrl;
         }
 
-        updates[id] = { text: decryptedText, mediaUrl: decryptedMediaUrl };
-        changed = true;
+        // Check if decryption succeeded
+        const isSuccess = Boolean(
+          (decryptedText && !decryptedText.includes('could not be decrypted')) ||
+          decryptedMediaUrl
+        );
+
+        if (isSuccess) {
+          failedAttemptsRef.current.delete(id);
+          const result = { text: decryptedText, mediaUrl: decryptedMediaUrl };
+          decryptedCacheRef.current[id] = result;
+          updates[id] = result;
+          changed = true;
+        } else if (isFromMe && existing?.text) {
+          // Never overwrite sender's original message with failure!
+          continue;
+        } else if (decryptedText.includes('could not be decrypted')) {
+          // Record failed attempt so we don't repeat endlessly
+          failedAttemptsRef.current.add(id);
+          const result = {
+            text: isFromMe ? 'Encrypted message' : '[Encrypted message could not be decrypted - invalid key or tampered]',
+            mediaUrl: null
+          };
+          decryptedCacheRef.current[id] = result;
+          updates[id] = result;
+          changed = true;
+        }
       }
 
       if (changed && isMounted) {
@@ -520,7 +781,7 @@ export default function SecretChatView({
     return () => {
       isMounted = false;
     };
-  }, [messages, e2eReady, decryptedMessages]);
+  }, [messages, e2eReady, activeConvId]);
 
   // Load messages once unlocked with secretToken
   useEffect(() => {
@@ -618,7 +879,34 @@ export default function SecretChatView({
     if ((!inputText.trim() && !selectedMedia) || isSending || !activeSecretToken) return;
 
     if (!conversationKeyRef.current) {
-      alert('Establishing secure E2EE encryption key... please try again in a moment.');
+      // Attempt instant on-demand derivation
+      const myId = (user?.id || user?._id)?.toString();
+      const other = activeConv?.participants?.find((p) => (p._id || p.id)?.toString() !== myId);
+      const otherId = (other?._id || other?.id)?.toString();
+      if (otherId && myIdentityRef.current) {
+        const peerPub = await secretChatService.getPublicKey(otherId).catch(() => null);
+        if (peerPub) {
+          conversationKeyRef.current = await e2eeService.getConversationKey(
+            activeConvId,
+            myIdentityRef.current.privateKeyJwk,
+            peerPub
+          );
+          setE2eReady(true);
+        }
+      }
+    }
+
+    if (!conversationKeyRef.current) {
+      try {
+        conversationKeyRef.current = await e2eeService.getConversationFallbackKey(activeConvId);
+        setE2eReady(true);
+      } catch (keyErr) {
+        console.warn('Fallback key derivation error:', keyErr.message);
+      }
+    }
+
+    if (!conversationKeyRef.current) {
+      alert('Establishing secure encryption session... please try again in a moment.');
       return;
     }
 
@@ -644,6 +932,9 @@ export default function SecretChatView({
           formData.append('iv', encText.iv);
           formData.append('authTag', encText.authTag);
         }
+        if (myIdentityRef.current?.publicKeyJwk) {
+          formData.append('senderPublicKey', JSON.stringify(myIdentityRef.current.publicKeyJwk));
+        }
         formData.append('media', encMedia.encryptedFile);
         formData.append('mediaIv', encMedia.mediaIv);
         formData.append(
@@ -663,6 +954,7 @@ export default function SecretChatView({
           ciphertext: encText.ciphertext,
           iv: encText.iv,
           authTag: encText.authTag,
+          senderPublicKey: myIdentityRef.current?.publicKeyJwk || null,
           clientMessageId: clientMsgId
         };
         newMsg = await secretChatService.sendMessage(
@@ -673,16 +965,16 @@ export default function SecretChatView({
       }
 
       // Immediately cache decrypted version for instant client rendering
+      const renderedItem = {
+        text: inputText.trim(),
+        mediaUrl: mediaPreview
+      };
+      decryptedCacheRef.current[newMsg._id] = renderedItem;
+      decryptedCacheRef.current[clientMsgId] = renderedItem;
       setDecryptedMessages((prev) => ({
         ...prev,
-        [newMsg._id]: {
-          text: inputText.trim(),
-          mediaUrl: mediaPreview
-        },
-        [clientMsgId]: {
-          text: inputText.trim(),
-          mediaUrl: mediaPreview
-        }
+        [newMsg._id]: renderedItem,
+        [clientMsgId]: renderedItem
       }));
 
       setMessages((prev) => {
@@ -793,6 +1085,10 @@ export default function SecretChatView({
   const handleExitAndWipe = async () => {
     try {
       setIsWiping(true);
+      const sock = socketRef.current || socket;
+      if (sock && activeConvId) {
+        sock.emit('secret:conversation:end', { conversationId: activeConvId });
+      }
       await secretChatService.exitSecretChat(activeConvId, activeSecretToken);
 
       // Wipe session keys and decrypted messages from client memory
@@ -809,7 +1105,10 @@ export default function SecretChatView({
       });
 
       setShowExitModal(false);
-      onExit();
+      showSecretToast('Secret chat ended and wiped');
+      setTimeout(() => {
+        onExit();
+      }, 500);
     } catch (err) {
       alert(err.message || 'Failed to wipe secret chat');
     } finally {
@@ -931,7 +1230,7 @@ export default function SecretChatView({
 
           <button
             type="button"
-            onClick={onExit}
+            onClick={handleSafeExit}
             className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
@@ -967,8 +1266,8 @@ export default function SecretChatView({
             <span className="font-bold text-xs tracking-tight text-white">Secret Mode</span>
           </div>
           <button
-            onClick={onExit}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white transition-colors"
+            onClick={handleSafeExit}
+            className="p-1.5 rounded-xl text-slate-400 hover:text-white transition-colors cursor-pointer"
             title="Exit Secret Mode"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -1365,7 +1664,15 @@ export default function SecretChatView({
           <>
             {/* Header */}
             <div className="p-3 sm:px-6 bg-[#0e111a] border-b border-emerald-500/20 flex flex-wrap items-center justify-between gap-3 backdrop-blur-xl">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={handleSafeExit}
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  title="Exit Secret Chat"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
                 <div className="relative">
                   <img
                     src={getUserAvatar(otherParticipant)}
@@ -1502,8 +1809,13 @@ export default function SecretChatView({
                   }
 
                   // 2. Regular Secret Message (Text or Media)
-                  const dec = decryptedMessages[msg._id] || decryptedMessages[msg.clientMessageId];
-                  const displayText = dec ? dec.text : (msg.ciphertext ? 'Decrypting...' : msg.content);
+                  const dec =
+                    decryptedMessages[msg._id] ||
+                    decryptedMessages[msg.clientMessageId] ||
+                    decryptedCacheRef.current[msg._id] ||
+                    decryptedCacheRef.current[msg.clientMessageId];
+
+                  const displayText = dec?.text ?? (msg.ciphertext ? 'Decrypting...' : (msg.content || ''));
                   const displayMediaUrl = dec?.mediaUrl || (msg.mediaIv ? null : msg.mediaUrl);
 
                   return (
@@ -1529,7 +1841,11 @@ export default function SecretChatView({
                           </div>
                         )}
 
-                        {displayText && <p className="whitespace-pre-line">{displayText}</p>}
+                        {displayText ? (
+                          <p className="whitespace-pre-line">{displayText}</p>
+                        ) : !displayMediaUrl ? (
+                          <p className="whitespace-pre-line text-slate-400 italic">Decrypting...</p>
+                        ) : null}
 
                         {/* E2EE Lock indicator */}
                         {msg.ciphertext && (

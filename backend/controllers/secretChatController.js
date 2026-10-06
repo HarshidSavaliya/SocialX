@@ -107,12 +107,20 @@ export const sendMessage = async (req, res, next) => {
       clientMessageId
     } = req.body;
 
+    let senderPublicKey = req.body.senderPublicKey;
+    if (typeof senderPublicKey === 'string') {
+      try {
+        senderPublicKey = JSON.parse(senderPublicKey);
+      } catch (_) {}
+    }
+
     const message = await secretChatService.sendMessage({
       conversationId: req.params.id,
       senderId: req.user._id,
       ciphertext: ciphertext || req.body.content || req.body.text || '',
       iv: iv || null,
       authTag: authTag || null,
+      senderPublicKey: senderPublicKey || null,
       encryptedMetadata: encryptedMetadata || null,
       mediaIv: mediaIv || null,
       file: req.file,

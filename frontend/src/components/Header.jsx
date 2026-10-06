@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  Search,
   Sun,
   Moon,
   PlusCircle,
@@ -31,18 +30,6 @@ export default function Header({
 }) {
   const { user, isAuthenticated, logout } = useAuth();
   const { isDark, toggleTheme } = useTheme();
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const handleSearchSubmit = (e) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      if (onOpenSearch) {
-        onOpenSearch(searchQuery.trim());
-      } else if (onSearchHashtag) {
-        onSearchHashtag(searchQuery.trim());
-      }
-    }
-  };
 
   const handleNotificationNavigate = (notification) => {
     if (notification.type === 'MESSAGE' && onOpenConversation && notification.relatedConversation) {
@@ -94,32 +81,6 @@ export default function Header({
             Social<span className="bg-gradient-to-r from-amber-400 to-orange-400 bg-clip-text text-transparent">X</span>
           </span>
         </div>
-
-        {/* Search Bar */}
-        <form onSubmit={handleSearchSubmit} className="hidden md:flex flex-1 max-w-md mx-4">
-          <div
-            onClick={() => {
-              if (onOpenSearch) onOpenSearch(searchQuery);
-            }}
-            className={`relative w-full flex items-center rounded-full transition-all duration-200 border cursor-pointer ${isDark
-                ? 'bg-white/[0.04] border-white/10 focus-within:border-amber-500/50 focus-within:bg-white/[0.07]'
-                : 'bg-stone-100/90 border-stone-200/80 focus-within:border-stone-400 focus-within:bg-white'
-              }`}
-          >
-            <Search className="w-4 h-4 ml-4 text-stone-400" />
-            <input
-              type="text"
-              placeholder="Search people, posts, or #hashtags..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => {
-                if (onOpenSearch) onOpenSearch(searchQuery);
-              }}
-              className={`w-full py-2.5 pl-3 pr-10 text-xs sm:text-sm bg-transparent outline-none transition-colors ${isDark ? 'text-stone-100 placeholder-stone-500' : 'text-stone-800 placeholder-stone-400'
-                }`}
-            />
-          </div>
-        </form>
 
         {/* Right Header Controls */}
         <div className="flex items-center gap-2 sm:gap-3">

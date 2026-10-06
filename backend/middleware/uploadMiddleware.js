@@ -92,6 +92,9 @@ const upload = multer({
 });
 
 export const uploadSingleMedia = (req, res, next) => {
+  if (!req.is('multipart/form-data')) {
+    return next();
+  }
   upload.single('media')(req, res, (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {

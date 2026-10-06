@@ -3,6 +3,7 @@ import messageService from '../services/messageService.js';
 export const sendMessage = async (req, res, next) => {
   try {
     const receiverId = req.body.receiverId || req.body.recipientId;
+    const conversationId = req.body.conversationId;
     const { replyTo, clientMessageId } = req.body;
     let { mediaUrl, mediaType } = req.body;
     let mediaPublicId = null;
@@ -25,12 +26,13 @@ export const sendMessage = async (req, res, next) => {
       mediaType = isAudio ? 'audio' : (isVideo ? 'video' : 'image');
     }
 
-    if (!receiverId) {
-      return res.status(400).json({ success: false, message: 'receiverId is required' });
+    if (!receiverId && !conversationId) {
+      return res.status(400).json({ success: false, message: 'receiverId or conversationId is required' });
     }
     const message = await messageService.sendMessage({
       senderId: req.user._id,
       receiverId,
+      conversationId,
       text,
       mediaUrl,
       mediaPublicId,

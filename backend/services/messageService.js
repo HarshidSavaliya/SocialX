@@ -4,7 +4,7 @@ import Message from '../models/Message.js';
 import User from '../models/User.js';
 import notificationService from './notificationService.js';
 import cloudinaryService from './cloudinaryService.js';
-import { emitToConversation } from '../socket/socketServer.js';
+import { emitToConversation, emitToUser } from '../socket/socketServer.js';
 
 class MessageService {
   /**
@@ -180,7 +180,7 @@ class MessageService {
     if (replyTo) {
       const originalMessage = await Message.findOne({
         _id: replyTo,
-        conversation: conversationId
+        conversation: targetConversationId
       });
       if (!originalMessage) {
         const err = new Error('Replied message does not exist in this conversation');
@@ -191,7 +191,7 @@ class MessageService {
     }
 
     const message = await Message.create({
-      conversation: conversationId,
+      conversation: targetConversationId,
       sender: senderId,
       receiver: receiverId,
       clientMessageId: clientMessageId || null,
@@ -204,7 +204,7 @@ class MessageService {
     });
 
     // Atomically update conversation last message and increment recipient unread count
-    await Conversation.findByIdAndUpdate(conversationId, {
+    await Conversation.findByIdAndUpdate(targetConversationId, {
       lastMessage: message._id,
       lastMessageAt: new Date(),
       $inc: { [`unreadCounts.${receiverId.toString()}`]: 1 }
@@ -219,8 +219,9 @@ class MessageService {
         populate: { path: 'sender', select: 'name username' }
       });
 
-    // Emit real-time message to conversation room
-    emitToConversation(conversationId.toString(), 'message:new', populated);
+    // Emit real-time message to conversation room and receiver personal room
+    emitToConversation(targetConversationId.toString(), 'message:new', populated);
+    emitToUser(receiverId.toString(), 'message:new', populated);
 
     // Persist notification once for recipient
     if (senderId.toString() !== receiverId.toString()) {
@@ -232,7 +233,7 @@ class MessageService {
           type: 'MESSAGE',
           title: 'New Message',
           message: `${sender?.name || 'Someone'} sent you a message`,
-          relatedConversation: conversationId
+          relatedConversation: targetConversationId
         })
         .catch((e) => console.warn('Message notification warning:', e.message));
     }
@@ -518,6 +519,64 @@ class MessageService {
     message.isStarred = !message.isStarred;
     await message.save();
     return { messageId: message._id, isStarred: message.isStarred };
+  }
+
+  /**
+   * Delete an entire conversation and its messages.
+   * Cleans up Cloudinary media for all messages in the conversation.
+   * Verifies the requesting user is a participant.
+   */
+  async deleteConversation(conversationId, userId) {
+    const conversation = await Conversation.findById(conversationId);
+    if (!conversation) {
+      const err = new Error('Conversation not found');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const isParticipant = conversation.participants.some(
+      (p) => p.toString() === userId.toString()
+    );
+    if (!isParticipant) {
+      const err = new Error('Not authorized to delete this conversation');
+      err.statusCode = 403;
+      throw err;
+    }
+
+    // Clean up media for messages in this conversation
+    const messagesWithMedia = await Message.find({
+      conversation: conversationId,
+      mediaPublicId: { $ne: null }
+    }).select('mediaPublicId mediaType');
+
+    for (const msg of messagesWithMedia) {
+      try {
+        await cloudinaryService.deleteMedia(msg.mediaPublicId, msg.mediaType || 'image');
+      } catch (mediaErr) {
+        console.warn('Failed to delete message media during conversation deletion:', mediaErr.message);
+      }
+    }
+
+    // Delete all messages belonging to this conversation
+    await Message.deleteMany({ conversation: conversationId });
+
+    // Delete conversation document
+    await Conversation.findByIdAndDelete(conversationId);
+
+    // Notify participants via real-time socket
+    emitToConversation(conversationId.toString(), 'conversation:deleted', {
+      conversationId: conversationId.toString(),
+      deletedBy: userId.toString()
+    });
+
+    conversation.participants.forEach((p) => {
+      emitToUser(p.toString(), 'conversation:deleted', {
+        conversationId: conversationId.toString(),
+        deletedBy: userId.toString()
+      });
+    });
+
+    return { success: true, conversationId };
   }
 }
 

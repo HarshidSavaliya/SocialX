@@ -23,6 +23,7 @@ export function VideoCallProvider({ children }) {
   const [outgoingCall, setOutgoingCall] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
   const [callDuration, setCallDuration] = useState(0);
+  const [currentCallType, setCurrentCallType] = useState('video');
 
   // Media & Hardware States
   const [isMicMuted, setIsMicMuted] = useState(false);
@@ -291,8 +292,11 @@ export function VideoCallProvider({ children }) {
     };
 
     // C. Caller receives call acceptance from receiver
-    const handleCallAccept = async () => {
+    const handleCallAccept = async (data) => {
       setCallStatus('connected');
+      if (data?.callType) {
+        setCurrentCallType(data.callType);
+      }
       if (durationTimerRef.current) clearInterval(durationTimerRef.current);
       setCallDuration(0);
       durationTimerRef.current = setInterval(() => {
@@ -390,9 +394,6 @@ export function VideoCallProvider({ children }) {
     return () => window.removeEventListener('beforeunload', handleUnload);
   }, [cleanupMedia]);
 
-  // Call Type State: 'video' | 'audio'
-  const [currentCallType, setCurrentCallType] = useState('video');
-
   // -------------------------------------------------------------
   // 5. Initialize Local Agora Media Tracks
   // -------------------------------------------------------------
@@ -464,6 +465,7 @@ export function VideoCallProvider({ children }) {
       const session = res.data.callSession;
       const agoraData = res.data.agora;
       setActiveSession(session);
+      setOutgoingCall({ receiver, callType, callSessionId: session._id });
 
       // Join Agora RTC Channel as Caller
       const client = getOrCreateAgoraClient();
